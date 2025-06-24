@@ -4,32 +4,36 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from datetime import datetime
 
-from aiogram.filters import Command, CommandStart # Импортируем Command и CommandStart
+from aiogram.filters import Command, CommandStart  # Импортируем Command и CommandStart
 
 from database import add_order, get_order_by_id, get_user_orders, update_order_delivery_info, update_order_status
 from config import ADMIN_IDS
 
 user_router = Router()
 
+
 class UserOrderState(StatesGroup):
-    waiting_for_order_text = State() # Ожидание заказа
-    confirm_order = State() # Ожидание подтверждения/отмены заказа
-    waiting_for_full_name = State() # Ожидание ФИО
-    waiting_for_address = State()   # Ожидание адреса
-    waiting_for_payment_method = State() # Ожидание способа оплаты
-    waiting_for_phone = State() # Ожидание телефона
-    waiting_for_notes = State() # Ожидание примечаний
+    waiting_for_order_text = State()  # Ожидание заказа
+    confirm_order = State()  # Ожидание подтверждения/отмены заказа
+    waiting_for_full_name = State()  # Ожидание ФИО
+    waiting_for_address = State()  # Ожидание адреса
+    waiting_for_payment_method = State()  # Ожидание способа оплаты
+    waiting_for_phone = State()  # Ожидание телефона
+    waiting_for_notes = State()  # Ожидание примечаний
+
 
 @user_router.message(CommandStart())
 @user_router.message(Command(commands=["help"]))
 async def send_welcome(message: types.Message):
     """Отправляет приветственное сообщение и предлагает сделать заказ."""
-    await message.reply("Привет! Я твой бот для заказов. Чтобы сделать заказ, просто отправь мне сообщение с описанием того, что ты хочешь заказать.")
+    await message.reply(
+        "Привет! Я твой бот для заказов. Чтобы сделать заказ, просто отправь мне сообщение с описанием того, что ты хочешь заказать.")
     await message.bot.set_my_commands([
         types.BotCommand(command="start", description="Начать работу с ботом"),
         types.BotCommand(command="help", description="Получить помощь"),
         types.BotCommand(command="myorders", description="Показать мои заказы")
     ])
+
 
 @user_router.message(Command(commands=["myorders"]))
 async def show_user_orders(message: types.Message):
@@ -45,7 +49,7 @@ async def show_user_orders(message: types.Message):
     for order in orders:
         # Извлекаем все поля, включая новые, для отображения
         order_id, _, _, order_text, created_at, sent_at, received_at, status, \
-        full_name, delivery_address, payment_method, contact_phone, delivery_notes = order
+            full_name, delivery_address, payment_method, contact_phone, delivery_notes = order
 
         truncated_text = (order_text[:50] + '...') if len(order_text) > 50 else order_text
         formatted_created_at = datetime.fromisoformat(created_at).strftime('%d.%m.%Y %H:%M')
@@ -58,14 +62,13 @@ async def show_user_orders(message: types.Message):
         if contact_phone: delivery_info_str += f"   Телефон: {contact_phone}\n"
         if delivery_notes: delivery_info_str += f"   Примечания: {delivery_notes}\n"
 
-
         response += (f"📦 Заказ №{order_id}\n"
                      f"   Текст: {truncated_text}\n"
                      f"   Создан: {formatted_created_at}\n"
                      f"   Статус: <b>{status}</b>\n")
         if delivery_info_str:
             response += f"--- Детали доставки ---\n{delivery_info_str}"
-        response += "\n" # Пустая строка для разделения заказов
+        response += "\n"  # Пустая строка для разделения заказов
     await message.reply(response, parse_mode='HTML')
 
 
@@ -88,7 +91,8 @@ async def handle_new_order(message: types.Message, state: FSMContext):
     ])
     await message.reply(f"Ты хочешь заказать: \n\n<b>{order_text}</b>\n\nПодтвердить заказ или отменить?",
                         reply_markup=markup, parse_mode='HTML')
-    await state.set_state(UserOrderState.confirm_order) # Переходим в состояние ожидания подтверждения
+    await state.set_state(UserOrderState.confirm_order)  # Переходим в состояние ожидания подтверждения
+
 
 # --- Обработка подтверждения/отмены заказа ---
 @user_router.callback_query(F.data == "confirm_order", UserOrderState.confirm_order)
@@ -100,18 +104,20 @@ async def process_confirm_order(callback_query: types.CallbackQuery, state: FSMC
 
     # Создаем заказ в базе данных, но пока без деталей доставки
     order_id = add_order(user_id, username, order_text)
-    await state.update_data(order_id=order_id) # Сохраняем ID заказа в FSM context
+    await state.update_data(order_id=order_id)  # Сохраняем ID заказа в FSM context
 
     await callback_query.message.edit_text("Отлично! Теперь давай уточним данные для доставки.\n\n"
                                            "Пожалуйста, введите свое полное ФИО:")
-    await state.set_state(UserOrderState.waiting_for_full_name) # Переходим к запросу ФИО
-    await callback_query.answer() # Закрываем уведомление о нажатии кнопки
+    await state.set_state(UserOrderState.waiting_for_full_name)  # Переходим к запросу ФИО
+    await callback_query.answer()  # Закрываем уведомление о нажатии кнопки
+
 
 @user_router.callback_query(F.data == "cancel_order", UserOrderState.confirm_order)
 async def process_cancel_order(callback_query: types.CallbackQuery, state: FSMContext):
-    await state.clear() # Очищаем все данные FSM
+    await state.clear()  # Очищаем все данные FSM
     await callback_query.message.edit_text("Заказ отменен. Если передумаешь, просто отправь новое сообщение.")
     await callback_query.answer()
+
 
 # --- Шаги последовательного ввода данных для доставки ---
 
@@ -124,13 +130,16 @@ async def process_full_name(message: types.Message, state: FSMContext):
         [types.InlineKeyboardButton(text="✅ Далее", callback_data="next_step_address")],
         [types.InlineKeyboardButton(text="❌ Отменить заказ", callback_data="cancel_order_delivery")]
     ])
-    await message.reply(f"Твое ФИО: <b>{full_name}</b>\n\nВерно? Жми 'Далее' или 'Отменить заказ'.", parse_mode='HTML', reply_markup=markup)
-    await state.set_state(UserOrderState.waiting_for_address) # Переходим к ожиданию подтверждения/адреса
+    await message.reply(f"Твое ФИО: <b>{full_name}</b>\n\nВерно? Жми 'Далее' или 'Отменить заказ'.", parse_mode='HTML',
+                        reply_markup=markup)
+    await state.set_state(UserOrderState.waiting_for_address)  # Переходим к ожиданию подтверждения/адреса
+
 
 @user_router.callback_query(F.data == "next_step_address", UserOrderState.waiting_for_address)
 async def request_address(callback_query: types.CallbackQuery, state: FSMContext):
-    await callback_query.message.edit_text("Отлично! Теперь введите адрес доставки (улица, дом, квартира, город, индекс):")
-    await callback_query.answer() # Закрываем уведомление
+    await callback_query.message.edit_text(
+        "Отлично! Теперь введите адрес доставки (улица, дом, квартира, город, индекс):")
+    await callback_query.answer()  # Закрываем уведомление
     # Состояние уже установлено в waiting_for_address предыдущим хэндлером, но для ясности можно повторить
     await state.set_state(UserOrderState.waiting_for_address)
 
@@ -162,16 +171,17 @@ async def request_payment_method(callback_query: types.CallbackQuery, state: FSM
 
 @user_router.callback_query(F.data.startswith("payment_"), UserOrderState.waiting_for_payment_method)
 async def process_payment_method_callback(callback_query: types.CallbackQuery, state: FSMContext):
-    payment_method = callback_query.data.split('_', 1)[1] # Извлекаем часть после 'payment_'
+    payment_method = callback_query.data.split('_', 1)[1]  # Извлекаем часть после 'payment_'
     await state.update_data(payment_method=payment_method)
 
     markup = types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text="✅ Далее", callback_data="next_step_phone")],
         [types.InlineKeyboardButton(text="❌ Отменить заказ", callback_data="cancel_order_delivery")]
     ])
-    await callback_query.message.edit_text(f"Способ оплаты: <b>{payment_method}</b>\n\nВерно?", parse_mode='HTML', reply_markup=markup)
+    await callback_query.message.edit_text(f"Способ оплаты: <b>{payment_method}</b>\n\nВерно?", parse_mode='HTML',
+                                           reply_markup=markup)
     await callback_query.answer()
-    await state.set_state(UserOrderState.waiting_for_phone) # Переходим к запросу телефона
+    await state.set_state(UserOrderState.waiting_for_phone)  # Переходим к запросу телефона
 
 
 @user_router.callback_query(F.data == "next_step_phone", UserOrderState.waiting_for_phone)
@@ -200,7 +210,9 @@ async def request_notes(callback_query: types.CallbackQuery, state: FSMContext):
         [types.InlineKeyboardButton(text="Пропустить", callback_data="finish_order")],
         [types.InlineKeyboardButton(text="❌ Отменить заказ", callback_data="cancel_order_delivery")]
     ])
-    await callback_query.message.edit_text("Есть ли какие-либо примечания к доставке? (например, 'домофон не работает', 'позвонить заранее')\n\nЕсли нет, нажмите 'Пропустить'.", reply_markup=markup)
+    await callback_query.message.edit_text(
+        "Есть ли какие-либо примечания к доставке? (например, 'домофон не работает', 'позвонить заранее')\n\nЕсли нет, нажмите 'Пропустить'.",
+        reply_markup=markup)
     await callback_query.answer()
     await state.set_state(UserOrderState.waiting_for_notes)
 
@@ -214,8 +226,9 @@ async def process_notes(message: types.Message, state: FSMContext):
         [types.InlineKeyboardButton(text="✅ Завершить оформление", callback_data="finish_order")],
         [types.InlineKeyboardButton(text="❌ Отменить заказ", callback_data="cancel_order_delivery")]
     ])
-    await message.reply(f"Примечания: <b>{delivery_notes}</b>\n\nВерно? Нажмите 'Завершить оформление'.", parse_mode='HTML', reply_markup=markup)
-    await state.set_state(UserOrderState.waiting_for_notes) # Остаемся в этом состоянии, пока не будет финализация
+    await message.reply(f"Примечания: <b>{delivery_notes}</b>\n\nВерно? Нажмите 'Завершить оформление'.",
+                        parse_mode='HTML', reply_markup=markup)
+    await state.set_state(UserOrderState.waiting_for_notes)  # Остаемся в этом состоянии, пока не будет финализация
 
 
 @user_router.callback_query(F.data == "finish_order", UserOrderState.waiting_for_notes)
@@ -233,13 +246,14 @@ async def finalize_order(callback_query: types.CallbackQuery, state: FSMContext)
         delivery_notes=user_data.get('delivery_notes')
     )
 
-    await callback_query.message.edit_text(f"🚀 Ваш заказ №{order_id} полностью оформлен и принят!\nМы свяжемся с вами в ближайшее время для подтверждения деталей.")
+    await callback_query.message.edit_text(
+        f"🚀 Ваш заказ №{order_id} полностью оформлен и принят!\nМы свяжемся с вами в ближайшее время для подтверждения деталей.")
 
     # Отправляем уведомление администраторам с полными деталями
-    order = get_order_by_id(order_id) # Получаем обновленные данные
+    order = get_order_by_id(order_id)  # Получаем обновленные данные
     if order:
         order_id, user_id, username, order_text, created_at_iso, sent_at_iso, received_at_iso, status, \
-        full_name, delivery_address, payment_method, contact_phone, delivery_notes = order
+            full_name, delivery_address, payment_method, contact_phone, delivery_notes = order
 
         created_at_dt = datetime.fromisoformat(created_at_iso)
         formatted_created_at = created_at_dt.strftime('%d.%m.%Y %H:%M')
@@ -258,7 +272,8 @@ async def finalize_order(callback_query: types.CallbackQuery, state: FSMContext)
 
         markup = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="👁️ Подробнее/Изменить", callback_data=f"admin_view_order_{order_id}")],
-            [types.InlineKeyboardButton(text="✅ Принять заказ", callback_data=f"admin_status_Обрабатывается_{order_id}")]
+            [types.InlineKeyboardButton(text="✅ Принять заказ",
+                                        callback_data=f"admin_status_Обрабатывается_{order_id}")]
         ])
 
         for admin_id in ADMIN_IDS:
@@ -270,7 +285,7 @@ async def finalize_order(callback_query: types.CallbackQuery, state: FSMContext)
         print(f"Ошибка: Заказ {order_id} не найден при финализации.")
         await callback_query.message.answer("Произошла ошибка при финализации заказа. Администратор уведомлен.")
 
-    await state.clear() # Очищаем FSM после завершения
+    await state.clear()  # Очищаем FSM после завершения
     await callback_query.answer()
 
 
@@ -285,18 +300,21 @@ async def cancel_order_delivery(callback_query: types.CallbackQuery, state: FSMC
     if order_id:
         # Можно обновить статус заказа на "Отменен" в базе данных, если он уже создан
         update_order_status(order_id, "Отменен")
-        await callback_query.message.edit_text(f"Заказ №{order_id} отменен. Если передумаешь, просто отправь новое сообщение.")
+        await callback_query.message.edit_text(
+            f"Заказ №{order_id} отменен. Если передумаешь, просто отправь новое сообщение.")
     else:
-        await callback_query.message.edit_text("Оформление заказа отменено. Если передумаешь, просто отправь новое сообщение.")
+        await callback_query.message.edit_text(
+            "Оформление заказа отменено. Если передумаешь, просто отправь новое сообщение.")
 
     await state.clear()
     await callback_query.answer()
 
+
 # --- Логика для отмены диалога в любой момент (если пользователь вводит текст, когда ожидается кнопка) ---
-@user_router.message(F.text, UserOrderState) # Ловим любой текст, когда пользователь находится в любом FSM состоянии
+@user_router.message(F.text, UserOrderState)  # Ловим любой текст, когда пользователь находится в любом FSM состоянии
 async def handle_unexpected_text_during_fsm(message: types.Message, state: FSMContext):
     current_state = await state.get_state()
-    if current_state: # Если пользователь в FSM, но не в состоянии ожидания текста заказа
+    if current_state:  # Если пользователь в FSM, но не в состоянии ожидания текста заказа
         if current_state != UserOrderState.waiting_for_order_text:
             markup = types.InlineKeyboardMarkup(inline_keyboard=[
                 [types.InlineKeyboardButton(text="❌ Отменить оформление", callback_data="cancel_order_delivery")]
