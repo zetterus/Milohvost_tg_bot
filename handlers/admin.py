@@ -1,6 +1,3 @@
-from config import ADMIN_IDS
-
-print("Admin router initialized")
 # handlers/admin.py
 import logging
 from aiogram import types, Router, F
@@ -16,10 +13,13 @@ from database import (
     search_orders, update_order_text
 )
 from config import ADMIN_IDS
+
 admin_router = Router()
+
 
 class AdminOrderEditState(StatesGroup):
     waiting_for_new_text = State()
+
 
 # --- Вспомогательные функции ---
 def format_order_details(order_data: tuple) -> str:
@@ -39,9 +39,18 @@ def format_order_details(order_data: tuple) -> str:
         f"📊 Статус: <b>{status}</b>"
     )
 
+
 def get_admin_order_markup(order_id: int, current_status: str) -> types.InlineKeyboardMarkup:
     inline_keyboard = []
-    all_statuses = ["Новый", "Обрабатывается", "Ожидает оплаты", "Отменен", "Отправлен", "В пути", "Готов к выдаче", "Получен", "Проблема с доставкой"]
+    all_statuses = ["🆕 Новый",
+                    "⚙️ Обрабатывается",
+                    "💰 Ожидает оплаты",
+                    "❌ Отменен",
+                    "➡️ Отправлен",
+                    "🚚 В пути",
+                    "📦 Готов к выдаче",
+                    "✅ Получен",
+                    "⚠️ Проблема с доставкой"]
     status_buttons_row = []
     for status in all_statuses:
         if status != current_status:
@@ -60,6 +69,7 @@ def get_admin_order_markup(order_id: int, current_status: str) -> types.InlineKe
     ])
     return types.InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
 
+
 def format_orders_list(orders: list) -> str:
     if not orders:
         return "На данный момент активных заказов нет."
@@ -71,24 +81,15 @@ def format_orders_list(orders: list) -> str:
                      f"  Создан: {datetime.fromisoformat(created_at).strftime('%d.%m.%Y %H:%M')}\n\n")
     return response
 
+
 # --- Обработчики команд администратора ---
 
-
-
-@admin_router.message(Command(commands=["admin"])) # Убрали фильтр F.user.id.in_(ADMIN_IDS) отсюда
+@admin_router.message(Command(commands=["admin"]), F.from_user.id.in_(ADMIN_IDS))  # <<< САМЫЙ ВАЖНЫЙ ФИЛЬТР
 async def cmd_admin(message: types.Message):
     """
     Основная команда для администраторов.
     Выводит список всех заказов по умолчанию.
     """
-    # --- Ручная проверка ID администратора внутри функции ---
-    if message.from_user.id not in ADMIN_IDS:
-        await message.reply("У вас нет прав администратора для выполнения этой команды.")
-        logging.warning(f"Попытка доступа к админ-команде от неадминистратора: {message.from_user.id}")
-        return # Останавливаем выполнение функции, если пользователь не админ
-    # --------------------------------------------------------
-
-    print(f"Админская команда /admin получена от ID: {message.from_user.id}") # Оставляем для отладки
     orders = get_all_orders()
     response = format_orders_list(orders)
 
@@ -99,20 +100,12 @@ async def cmd_admin(message: types.Message):
     await message.reply(response, reply_markup=markup, parse_mode='HTML')
 
 
-@admin_router.message(Command(commands=["admin_search"])) # То же самое и здесь
+@admin_router.message(Command(commands=["admin_search"]), F.from_user.id.in_(ADMIN_IDS))  # <<< И здесь тоже
 async def cmd_admin_search(message: types.Message):
     """
     Поиск заказов по ID или ключевым словам.
     Использование: /admin_search <запрос>
     """
-    # --- Ручная проверка ID администратора внутри функции ---
-    if message.from_user.id not in ADMIN_IDS:
-        await message.reply("У вас нет прав администратора для выполнения этой команды.")
-        logging.warning(f"Попытка доступа к админ-команде от неадминистратора: {message.from_user.id}")
-        return # Останавливаем выполнение функции, если пользователь не админ
-    # --------------------------------------------------------
-
-    print(f"Админская команда /admin_search получена от ID: {message.from_user.id}") # Оставляем для отладки
     query_parts = message.text.split('/admin_search ', 1)
     if len(query_parts) < 2:
         await message.reply("Используйте: /admin_search <ID заказа или ключевые слова>")
@@ -127,6 +120,7 @@ async def cmd_admin_search(message: types.Message):
         [types.InlineKeyboardButton(text="🔍 Посмотреть все", callback_data="admin_view_all_orders")]
     ])
     await message.reply(response, reply_markup=markup, parse_mode='HTML')
+
 
 # --- Обработчики Callback Query (Inline-кнопок) (без изменений) ---
 
@@ -155,6 +149,7 @@ async def callback_view_order_details(callback: types.CallbackQuery):
     await callback.message.edit_text(formatted_text, reply_markup=markup, parse_mode='HTML')
     await callback.answer()
 
+
 @admin_router.callback_query(F.data.startswith("admin_status_") & F.from_user.id.in_(ADMIN_IDS))
 async def callback_change_order_status(callback: types.CallbackQuery):
     parts = callback.data.split('_')
@@ -172,6 +167,7 @@ async def callback_change_order_status(callback: types.CallbackQuery):
         await callback.message.edit_text("Заказ не найден после обновления статуса.")
         await callback.answer("Ошибка обновления статуса.")
 
+
 @admin_router.callback_query(F.data.startswith("admin_edit_text_") & F.from_user.id.in_(ADMIN_IDS))
 async def callback_edit_order_text(callback: types.CallbackQuery, state: FSMContext):
     order_id = int(callback.data.split('_')[-1])
@@ -181,10 +177,13 @@ async def callback_edit_order_text(callback: types.CallbackQuery, state: FSMCont
         await callback.answer()
         return
     await state.set_state(AdminOrderEditState.waiting_for_new_text)
-    await state.update_data(order_id=order_id, original_message_id=callback.message.message_id, chat_id=callback.message.chat.id)
-    await callback.message.edit_text(f"Введите новый текст для заказа №{order_id}:\n\nТекущий текст:\n`{order_data[3]}`",
-                                     parse_mode='Markdown')
+    await state.update_data(order_id=order_id, original_message_id=callback.message.message_id,
+                            chat_id=callback.message.chat.id)
+    await callback.message.edit_text(
+        f"Введите новый текст для заказа №{order_id}:\n\nТекущий текст:\n`{order_data[3]}`",
+        parse_mode='Markdown')
     await callback.answer()
+
 
 @admin_router.message(AdminOrderEditState.waiting_for_new_text, F.user.id.in_(ADMIN_IDS))
 async def process_new_order_text(message: types.Message, state: FSMContext):
@@ -216,6 +215,7 @@ async def process_new_order_text(message: types.Message, state: FSMContext):
     else:
         await message.answer("Заказ не найден после обновления текста.")
 
+
 @admin_router.callback_query(F.data == "admin_export_excel", F.from_user.id.in_(ADMIN_IDS))
 async def callback_export_excel(callback: types.CallbackQuery):
     orders = get_all_orders()
@@ -240,10 +240,12 @@ async def callback_export_excel(callback: types.CallbackQuery):
     workbook.save(excel_file)
     excel_file.seek(0)
     await callback.message.answer_document(
-        types.BufferedInputFile(excel_file.getvalue(), filename=f"orders_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"),
+        types.BufferedInputFile(excel_file.getvalue(),
+                                filename=f"orders_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"),
         caption="Ваш список заказов в формате Excel."
     )
     await callback.answer("Файл Excel создан и отправлен.")
+
 
 @admin_router.callback_query(F.data == "admin_back_to_list", F.from_user.id.in_(ADMIN_IDS))
 async def callback_back_to_list(callback: types.CallbackQuery):
