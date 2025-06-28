@@ -278,20 +278,17 @@ class UserHandlers:
         user_data = await state.get_data()
         logger.info(f"Пользователь {callback.from_user.id} окончательно подтвердил заказ.")
 
-        # Собираем данные для передачи в функцию БД
-        order_to_save = {
-            'user_id': callback.from_user.id,
-            'username': callback.from_user.username or callback.from_user.full_name,
-            'order_text': user_data.get('order_text'),
-            'full_name': user_data.get('full_name'),
-            'delivery_address': user_data.get('delivery_address'),
-            'payment_method': user_data.get('payment_method'),
-            'contact_phone': user_data.get('contact_phone'),
-            'delivery_notes': user_data.get('delivery_notes'),
-        }
-
-        # Вызываем функцию из db.py для сохранения заказа
-        new_order = await add_new_order(order_to_save)  # <-- ИЗМЕНЕНО
+        # Вызываем функцию из db.py для сохранения заказа, передавая параметры по отдельности
+        new_order = await add_new_order(
+            user_id=callback.from_user.id,
+            username=callback.from_user.username or callback.from_user.full_name,
+            order_text=user_data.get('order_text', 'Не указан'),  # Убедимся, что order_text всегда есть
+            full_name=user_data.get('full_name'),
+            delivery_address=user_data.get('delivery_address'),
+            payment_method=user_data.get('payment_method'),
+            contact_phone=user_data.get('contact_phone'),
+            delivery_notes=user_data.get('delivery_notes'),
+        )
 
         await callback.message.edit_text(
             f"✅ Твой заказ №*{new_order.id}* успешно оформлен! Мы свяжемся с тобой в ближайшее время.",
