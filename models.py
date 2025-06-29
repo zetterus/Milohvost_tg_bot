@@ -19,7 +19,7 @@ class Order(Base):
     created_at = Column(DateTime, default=func.now())
     sent_at = Column(DateTime)
     received_at = Column(DateTime)
-    status = Column(String, default='pending') # pending, processing, completed, cancelled
+    status = Column(String, default='pending')
     full_name = Column(String)
     delivery_address = Column(String)
     payment_method = Column(String)

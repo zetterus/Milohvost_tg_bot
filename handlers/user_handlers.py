@@ -7,7 +7,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 import logging
 
 from db import add_new_order, get_active_help_message_from_db, get_user_orders_paginated, \
-    count_user_orders  # <-- ДОБАВЬ ЭТИ ФУНКЦИИ
+    count_user_orders
 from config import ORDERS_PER_PAGE, ORDER_STATUS_MAP
 from models import Order, HelpMessage
 
