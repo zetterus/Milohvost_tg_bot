@@ -1,17 +1,14 @@
 # db.py
 import logging
-import datetime
-import sqlite3
 from typing import List, Optional
 from contextlib import asynccontextmanager
 from sqlalchemy import text, select, func, or_, Column, Integer, String, Text, DateTime, event
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, AsyncEngine  # Используем асинхронные версии
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.dialects.sqlite.aiosqlite import AsyncAdapt_aiosqlite_connection
 
 from config import DATABASE_NAME, LOGGING_LEVEL, ORDERS_PER_PAGE, ACTIVE_ORDER_STATUSES
-from models import Base, Order  # Импортируем Base, чтобы создать таблицы через него
+from models import Base, Order
 
 # Настройка логирования
 logging.basicConfig(level=LOGGING_LEVEL)
@@ -127,17 +124,28 @@ async def add_new_order(
         return new_order
 
 
-async def get_all_orders(limit: Optional[int] = None) -> List[Order]:
+async def get_all_orders(offset: int = 0, limit: Optional[int] = None) -> tuple[
+    List[Order], int]:  # Изменено: возвращает кортеж (список, общее_количество)
     """
-    Получает последние заказы из базы данных.
+    Получает последние заказы из базы данных с пагинацией и общее количество.
+    :param offset: Смещение для пагинации.
     :param limit: Максимальное количество заказов для возврата.
-    :return: Список объектов Order.
+    :return: Кортеж: (список объектов Order, общее количество заказов).
     """
     async with get_db_session() as db:
-        result = await db.execute(
-            select(Order).order_by(Order.created_at.desc()).limit(limit)
-        )
-        return list(result.scalars().all())
+        # Получаем общее количество заказов
+        total_orders_query = select(func.count(Order.id))
+        total_orders = await db.scalar(total_orders_query) or 0
+
+        # Получаем заказы для текущей страницы
+        orders_query = select(Order).order_by(Order.created_at.desc())
+        if limit is not None:
+            orders_query = orders_query.offset(offset).limit(limit)
+
+        result = await db.execute(orders_query)
+        orders = list(result.scalars().all())
+
+        return orders, total_orders
 
 
 async def get_user_orders_paginated(user_id: int, offset: int, limit: int) -> List[Order]:
@@ -207,14 +215,20 @@ async def update_order_status(order_id: int, new_status: str) -> Optional[Order]
         return None
 
 
-async def search_orders(search_query: str) -> List[Order]:
+async def search_orders(search_query: str, offset: int = 0, limit: Optional[int] = None) -> tuple[
+    List[Order], int]:  # Изменено: возвращает кортеж
     """
     Ищет заказы по user_id, ID заказа, части имени пользователя или части текста заказа.
-    Теперь полагается на корректную работу func.lower() благодаря пользовательской функции SQLite.
+    Поддерживает пагинацию и возвращает общее количество найденных заказов.
+
+    :param search_query: Поисковый запрос пользователя.
+    :param offset: Смещение для пагинации (количество пропускаемых записей).
+    :param limit: Максимальное количество записей для возврата на одной странице.
+    :return: Кортеж: (список объектов Order, общее количество найденных заказов без учета пагинации).
     """
     async with get_db_session() as db:
-        search_query_orig = search_query.strip()  # Сохраняем оригинальный запрос для логирования
-        search_query_lower = search_query_orig.lower()  # Преобразуем запрос к нижнему регистру
+        search_query_orig = search_query.strip()
+        search_query_lower = search_query_orig.lower()
 
         is_numeric_query = False
         try:
@@ -223,41 +237,77 @@ async def search_orders(search_query: str) -> List[Order]:
         except ValueError:
             numeric_query_value = None
 
-        conditions = []  # Список условий для WHERE-clause
+        conditions = []
 
         if is_numeric_query and numeric_query_value is not None:
-            # Если запрос - число, ищем по user_id ИЛИ Order.id
             conditions.append(or_(
                 Order.user_id == numeric_query_value,
                 Order.id == numeric_query_value
             ))
 
-        # Теперь func.lower() будет работать корректно для ВСЕХ символов (включая кириллицу)
-        # так как мы заменили стандартную функцию SQLite на свою.
-        conditions.append(func.lower(Order.username).like(f"%{search_query_lower}%"))
-        conditions.append(func.lower(Order.order_text).like(f"%{search_query_lower}%"))
+        # Добавляем условия для текстового поиска, только если search_query_lower не пустой
+        if search_query_lower:
+            conditions.append(func.lower(Order.username).like(f"%{search_query_lower}%"))
+            conditions.append(func.lower(Order.order_text).like(f"%{search_query_lower}%"))
 
         if not conditions:
             logger.warning(f"Пустой список условий для поиска запроса: '{search_query_orig}'")
-            return []
+            return [], 0
 
-        # Объединяем все условия через OR
+        # Общее количество заказов по запросу (без пагинации)
+        count_stmt = select(func.count(Order.id)).where(or_(*conditions))
+        total_orders = await db.scalar(count_stmt) or 0
+
+        # Запрос с пагинацией
         stmt = select(Order).where(or_(*conditions)).order_by(Order.created_at.desc())
+        if limit is not None:
+            stmt = stmt.offset(offset).limit(limit)
 
         try:
-            # Логируем сгенерированный SQL-запрос для отладки
             logger.debug(
-                f"Выполняется SQL-запрос для поиска: {stmt.compile(engine, compile_kwargs={'literal_binds': True})}")
-
+                f"Выполняется SQL-запрос для поиска (пагинация): {stmt.compile(engine, compile_kwargs={'literal_binds': True})}")
             result = await db.execute(stmt)
             orders = list(result.scalars().all())
-            logger.info(f"Найдено {len(orders)} заказов по запросу: '{search_query_orig}'.")
-            return orders
+            logger.info(f"Найдено {len(orders)} заказов по запросу: '{search_query_orig}' (всего: {total_orders}).")
+            return orders, total_orders
         except Exception as e:
             logger.error(f"Ошибка при поиске заказов в БД: {e}")
-            return []
+            return [], 0
 
+async def update_order_text(order_id: int, new_text: str) -> Optional[Order]:
+    """
+    Обновляет текст заказа в базе данных по ID.
+    Возвращает обновленный объект Order или None, если заказ не найден.
+    """
+    async with get_db_session() as db:
+        order = await db.get(Order, order_id) # Используем db.get для получения по первичному ключу
+        if order:
+            order.order_text = new_text
+            # Добавим обновление поля updated_at, если оно есть в вашей модели, но его нет, поэтому не добавляю.
+            # order.updated_at = func.now() # Если у вас есть такое поле
+            await db.commit() # Сохраняем изменения в базе данных
+            await db.refresh(order) # Обновляем объект из базы данных
+            logger.info(f"Текст заказа ID {order.id} успешно обновлен.")
+            return order
+        logger.warning(f"Попытка обновить текст несуществующего заказа ID {order_id}.")
+        return None
 
+async def delete_order(order_id: int) -> bool:
+    """
+    Удаляет заказ из базы данных по ID.
+    Возвращает True, если заказ был успешно удален, False в противном случае.
+    """
+    async with get_db_session() as db:
+        order = await db.get(Order, order_id) # Сначала получаем объект
+        if order:
+            await db.delete(order) # Помечаем объект для удаления
+            await db.commit() # Выполняем удаление в базе данных
+            logger.info(f"Заказ ID {order.id} успешно удален из БД.")
+            return True
+        logger.warning(f"Попытка удалить несуществующий заказ ID {order_id}.")
+        return False
+
+# --- СООБЩЕНИЯ ПОМОЩИ ---
 async def get_active_help_message_from_db():
     """
     Получает активное сообщение помощи из базы данных.
