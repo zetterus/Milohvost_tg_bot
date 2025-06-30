@@ -2,10 +2,9 @@
 import logging
 import math
 import urllib.parse
-from datetime import datetime  # Добавлен импорт datetime для фиктивного CallbackQuery
 
 from aiogram import Router, F, Bot  # Добавлен Bot, так как он может быть передан для mock_callback_query
-from aiogram.types import Message, CallbackQuery, Chat  # Добавлен Chat для создания фиктивного Message
+from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command, StateFilter
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.markdown import hbold, hcode  # hlink, hitalic (если не используются, можно убрать)
@@ -14,7 +13,8 @@ from aiogram.fsm.context import FSMContext
 
 # Константы ORDERS_PER_PAGE и MAX_PREVIEW_TEXT_LENGTH теперь импортируются из config
 from config import ADMIN_IDS, ORDER_STATUS_MAP, ORDERS_PER_PAGE, MAX_PREVIEW_TEXT_LENGTH
-from db import get_all_orders, get_order_by_id, update_order_status, search_orders, update_order_text, delete_order, get_active_help_message_from_db
+from db import get_all_orders, get_order_by_id, update_order_status, search_orders, update_order_text, delete_order, \
+    get_active_help_message_from_db
 from models import Order, HelpMessage  # Убедитесь, что модели доступны
 
 logger = logging.getLogger(__name__)
@@ -392,7 +392,7 @@ class AdminHandlers:
         await callback.answer()
 
     @admin_router.message(StateFilter(AdminStates.waiting_for_order_text_edit))
-    async def admin_process_new_order_text(message: Message, state: FSMContext):
+    async def admin_process_new_order_text(message: Message, state: FSMContext, bot: Bot):
         """
         Обрабатывает ввод нового текста для заказа.
         Обновляет заказ в базе данных и возвращается к деталям заказа,
@@ -406,9 +406,9 @@ class AdminHandlers:
         order_id = data.get("editing_order_id")
         original_message_id = data.get("original_message_id")
         original_chat_id = data.get("original_chat_id")
-        original_chat_instance = data.get("original_chat_instance")
 
-        if not order_id or not original_message_id or not original_chat_id or not original_chat_instance:  # <-- Добавлена проверка
+        # Проверяем наличие всех необходимых данных
+        if not order_id or not original_message_id or not original_chat_id:
             logger.error(f"Админ {message.from_user.id}: Не найдены все данные для редактирования текста в FSM.")
             await message.answer(
                 "Ошибка: Не удалось определить заказ для редактирования. Пожалуйста, попробуйте снова через главное меню.",
@@ -423,31 +423,85 @@ class AdminHandlers:
 
         updated_order = await update_order_text(order_id=order_id, new_text=new_order_text)
 
-        await state.clear()
+        await state.clear()  # Очищаем состояние FSM
 
         if updated_order:
             await message.answer(f"Текст заказа №{order_id} успешно обновлен!", parse_mode="HTML")
 
-            mock_callback_query_message = Message(
-                chat=Chat(id=original_chat_id, type="private"),
-                message_id=original_message_id,
-                date=datetime.now(),
-                from_user=message.from_user,
-                text="",
-                bot=message.bot
+            # --- АЛЬТЕРНАТИВНЫЙ ПОДХОД БЕЗ ФИКШЕНА ---
+
+            # 1. Заново получаем актуальные данные заказа
+            order = await get_order_by_id(order_id)
+            if not order:  # Если вдруг заказ пропал после обновления (маловероятно, но для надежности)
+                await message.answer("Ошибка: Обновленный заказ не найден.", parse_mode="HTML")
+                await AdminHandlers._display_admin_main_menu(message, state, bot)
+                return
+
+            # 2. Формируем текст сообщения с деталями заказа
+            display_status = ORDER_STATUS_MAP.get(order.status, order.status)
+            order_details_text = (
+                f"{hbold('Детали заказа № ')}{hbold(str(order.id))}\n\n"
+                f"{hbold('Пользователь:')} {hbold(order.username or 'N/A')} ({order.user_id})\n"
+                f"{hbold('Статус:')} {hbold(display_status)}\n"
+                f"{hbold('Текст заказа:')}\n{hcode(order.order_text)}\n"
+                f"{hbold('ФИО:')} {order.full_name or 'Не указано'}\n"
+                f"{hbold('Адрес доставки:')} {order.delivery_address or 'Не указан'}\n"
+                f"{hbold('Метод оплаты:')} {order.payment_method or 'Не указан'}\n"
+                f"{hbold('Телефон:')} {order.contact_phone or 'Не указан'}\n"
+                f"{hbold('Примечания:')} {order.delivery_notes or 'Нет'}\n"
+                f"{hbold('Дата создания:')} {order.created_at.strftime('%d.%m.%Y %H:%M:%S')}\n"
             )
 
-            mock_callback_query = CallbackQuery(
-                id=f"edit_return_success_{order_id}_{datetime.now().timestamp()}",
-                from_user=message.from_user,
-                message=mock_callback_query_message,
-                data=f"view_order_{order_id}",
-                chat_instance=original_chat_instance  # <-- Используем реальный chat_instance
+            # 3. Формируем клавиатуру для деталей заказа (аналогично тому, как это делается в admin_view_order_details_callback)
+            status_keyboard = InlineKeyboardBuilder()
+            for status_key, status_value in ORDER_STATUS_MAP.items():
+                if status_key != order.status:
+                    status_keyboard.add(InlineKeyboardButton(
+                        text=f"🔄 {status_value}",
+                        callback_data=f"admin_change_status_{order.id}_{status_key}"
+                    ))
+            status_keyboard.adjust(2)
+
+            status_keyboard.row(
+                InlineKeyboardButton(
+                    text="✏️ Редактировать текст заказа",
+                    callback_data=f"admin_edit_order_text_{order.id}"
+                ),
+                InlineKeyboardButton(
+                    text="🗑️ Удалить заказ",
+                    callback_data=f"admin_confirm_delete_order_{order_id}"
+                )
             )
-            await AdminHandlers.admin_view_order_details_callback(mock_callback_query, state)
+
+            # Добавляем кнопки навигации (Назад к поиску/заказам)
+            state_data_for_navigation = await state.get_data()  # Получаем актуальные данные для навигации
+            current_page = state_data_for_navigation.get("current_page", 1)
+            search_query = state_data_for_navigation.get("search_query")
+            if search_query:
+                encoded_query = urllib.parse.quote_plus(search_query)
+                status_keyboard.row(InlineKeyboardButton(
+                    text="⬅️ Назад к поиску",
+                    callback_data=f"admin_search_page:{current_page}:{encoded_query}"
+                ))
+            else:
+                status_keyboard.row(InlineKeyboardButton(
+                    text="⬅️ Назад к заказам",
+                    callback_data=f"admin_all_orders_page:{current_page}"
+                ))
+
+            # 4. Редактируем исходное сообщение с деталями заказа
+            await bot.edit_message_text(
+                chat_id=original_chat_id,
+                message_id=original_message_id,
+                text=order_details_text,
+                reply_markup=status_keyboard.as_markup(),
+                parse_mode="HTML"
+            )
+            # --- КОНЕЦ АЛЬТЕРНАТИВНОГО ПОДХОДА ---
+
         else:
             await message.answer("Не удалось обновить текст заказа. Заказ не найден.", parse_mode="HTML")
-            await AdminHandlers._display_admin_main_menu(message, state)
+            await AdminHandlers._display_admin_main_menu(message, state, bot)  # <-- Передаем bot
 
     @admin_router.callback_query(F.data.startswith("admin_confirm_delete_order_"))
     async def admin_confirm_delete_order_callback(callback: CallbackQuery, state: FSMContext):
@@ -482,7 +536,7 @@ class AdminHandlers:
         await callback.answer()
 
     @admin_router.callback_query(F.data.startswith("admin_delete_order_"))
-    async def admin_delete_order_callback(callback: CallbackQuery, state: FSMContext):
+    async def admin_delete_order_callback(callback: CallbackQuery, state: FSMContext, bot: Bot):
         """
         Выполняет удаление заказа после подтверждения.
         """
@@ -498,49 +552,88 @@ class AdminHandlers:
         await state.clear()
 
         if deleted:
-            await callback.message.edit_text(f"Заказ №{order_id} успешно удален.", parse_mode="HTML")
+            await bot.edit_message_text(chat_id=callback.message.chat.id, message_id=callback.message.message_id,
+                                        text=f"Заказ №{order_id} успешно удален.", parse_mode="HTML")
+            await bot.answer_callback_query(callback.id, text=f"Заказ №{order_id} успешно удален.")
 
-            data = await state.get_data()
+            # Если заказ удален, возвращаемся к списку заказов
+            data = await state.get_data()  # Это могут быть старые данные FSM, но они нужны для пагинации
             current_page = data.get("current_page", 1)
             search_query = data.get("search_query")
 
             await AdminHandlers._display_orders_paginated(callback, state, current_page=current_page,
-                                                          is_search=bool(search_query))
+                                                          is_search=bool(search_query), bot=bot)
         else:
-            await callback.answer("Не удалось удалить заказ. Заказ не найден.", show_alert=True)
+            await bot.answer_callback_query(callback.id, text="Не удалось удалить заказ. Заказ не найден.",
+                                            show_alert=True)
 
+            # --- АЛЬТЕРНАТИВНЫЙ ПОДХОД БЕЗ ФИКШЕНА ДЛЯ СЛУЧАЯ НЕУДАЧИ ---
             data = await state.get_data()
             original_message_id = data.get("original_message_id_for_delete_confirm")
             original_chat_id = data.get("original_chat_id_for_delete_confirm")
-            original_chat_instance = data.get("original_chat_instance_for_delete_confirm")  # <-- Получаем chat_instance
 
-            if original_message_id and original_chat_id and original_chat_instance:  # <-- Добавлена проверка
-                mock_callback_query_message = Message(
-                    chat=Chat(id=original_chat_id, type="private"),
-                    message_id=original_message_id,
-                    date=datetime.now(),
-                    from_user=callback.from_user,
-                    text="",
-                    bot=callback.bot
-                )
-                mock_callback_query = CallbackQuery(
-                    id=f"delete_return_fail_{order_id}_{datetime.now().timestamp()}",
-                    from_user=callback.from_user,
-                    message=mock_callback_query_message,
-                    data=f"view_order_{order_id}",
-                    chat_instance=original_chat_instance  # <-- Используем реальный chat_instance
-                )
-                await AdminHandlers.admin_view_order_details_callback(mock_callback_query, state)
+            if original_message_id and original_chat_id:
+                # Заново получаем данные заказа (он не был удален)
+                order = await get_order_by_id(order_id)
+                if order:
+                    display_status = ORDER_STATUS_MAP.get(order.status, order.status)
+                    order_details_text = (
+                        f"{hbold('Детали заказа № ')}{hbold(str(order.id))}\n\n"
+                        f"{hbold('Пользователь:')} {hbold(order.username or 'N/A')} ({order.user_id})\n"
+                        f"{hbold('Статус:')} {hbold(display_status)}\n"
+                        f"{hbold('Текст заказа:')}\n{hcode(order.order_text)}\n"
+                        f"{hbold('ФИО:')} {order.full_name or 'Не указано'}\n"
+                        f"{hbold('Адрес доставки:')} {order.delivery_address or 'Не указан'}\n"
+                        f"{hbold('Метод оплаты:')} {order.payment_method or 'Не указан'}\n"
+                        f"{hbold('Телефон:')} {order.contact_phone or 'Не указан'}\n"
+                        f"{hbold('Примечания:')} {order.delivery_notes or 'Нет'}\n"
+                        f"{hbold('Дата создания:')} {order.created_at.strftime('%d.%m.%Y %H:%M:%S')}\n"
+                    )
+
+                    status_keyboard = InlineKeyboardBuilder()
+                    for status_key, status_value in ORDER_STATUS_MAP.items():
+                        if status_key != order.status:
+                            status_keyboard.add(InlineKeyboardButton(text=f"🔄 {status_value}",
+                                                                     callback_data=f"admin_change_status_{order.id}_{status_key}"))
+                    status_keyboard.adjust(2)
+                    status_keyboard.row(
+                        InlineKeyboardButton(text="✏️ Редактировать текст заказа",
+                                             callback_data=f"admin_edit_order_text_{order.id}"),
+                        InlineKeyboardButton(text="🗑️ Удалить заказ",
+                                             callback_data=f"admin_confirm_delete_order_{order_id}")
+                    )
+                    state_data_for_navigation = await state.get_data()
+                    current_page = state_data_for_navigation.get("current_page", 1)
+                    search_query = state_data_for_navigation.get("search_query")
+                    if search_query:
+                        encoded_query = urllib.parse.quote_plus(search_query)
+                        status_keyboard.row(InlineKeyboardButton(text="⬅️ Назад к поиску",
+                                                                 callback_data=f"admin_search_page:{current_page}:{encoded_query}"))
+                    else:
+                        status_keyboard.row(InlineKeyboardButton(text="⬅️ Назад к заказам",
+                                                                 callback_data=f"admin_all_orders_page:{current_page}"))
+
+                    await bot.edit_message_text(
+                        chat_id=original_chat_id,
+                        message_id=original_message_id,
+                        text=order_details_text,
+                        reply_markup=status_keyboard.as_markup(),
+                        parse_mode="HTML"
+                    )
+                else:
+                    await bot.edit_message_text(chat_id=original_chat_id, message_id=original_message_id,
+                                                text="Не удалось удалить заказ. Возвращаюсь в главное меню.",
+                                                parse_mode="HTML")
+                    await AdminHandlers._display_admin_main_menu(callback, state, bot)
             else:
-                await callback.message.edit_text("Не удалось удалить заказ. Возвращаюсь в главное меню.",
-                                                 parse_mode="HTML")
-                await AdminHandlers._display_admin_main_menu(callback, state)
-
-        await callback.answer()
+                await bot.edit_message_text(chat_id=callback.message.chat.id, message_id=callback.message.message_id,
+                                            text="Не удалось удалить заказ. Возвращаюсь в главное меню.",
+                                            parse_mode="HTML")
+                await AdminHandlers._display_admin_main_menu(callback, state, bot)
 
     # --- ПОИСК ЗАКАЗОВ ---
     @admin_router.callback_query(F.data == "admin_find_orders")
-    async def admin_find_orders_callback(callback: CallbackQuery, state: FSMContext):
+    async def admin_find_orders_callback(callback: CallbackQuery, state: FSMContext, bot: Bot):  # <-- Добавлен bot
         """
         Обрабатывает нажатие кнопки "Найти заказы 🔍".
         Запрашивает у пользователя поисковый запрос и переводит в состояние ожидания ввода.
@@ -551,13 +644,15 @@ class AdminHandlers:
 
         logger.info(f"Админ {callback.from_user.id} начал поиск заказов. Текущее состояние: {await state.get_state()}")
 
-        await callback.answer()
+        await bot.answer_callback_query(callback.id)  # <--- Использовать bot
 
         await state.set_state(AdminStates.waiting_for_search_query)
         logger.info(f"Состояние админа {callback.from_user.id} установлено в {await state.get_state()}")
 
-        await callback.message.edit_text(
-            "Пожалуйста, введите ID заказа, часть имени пользователя или часть текста заказа для поиска:",
+        await bot.edit_message_text(  # <--- Использовать bot
+            chat_id=callback.message.chat.id,
+            message_id=callback.message.message_id,
+            text="Пожалуйста, введите ID заказа, часть имени пользователя или часть текста заказа для поиска:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="Отмена", callback_data="admin_panel_back")]
             ]),
@@ -578,7 +673,6 @@ class AdminHandlers:
         logger.info(f"Админ {message.from_user.id} ввел поисковый запрос: '{search_query}'.")
 
         await state.update_data(search_query=search_query)  # Сохраняем поисковый запрос в FSM-контексте
-        await state.clear()  # Очищаем состояние после получения запроса, чтобы вернуться к нейтральному
 
         # Переходим к отображению первой страницы результатов поиска.
         await AdminHandlers._display_orders_paginated(message, state, current_page=1, is_search=True)
@@ -671,19 +765,3 @@ class AdminHandlers:
             parse_mode="HTML"
         )
         await callback.answer()
-
-    # Здесь могут быть другие хендлеры для создания/редактирования/активации сообщений помощи
-    # Например:
-    # @admin_router.callback_query(F.data == "admin_edit_help_message")
-    # async def admin_edit_help_message_entry(callback: CallbackQuery, state: FSMContext):
-    #     await state.set_state(AdminStates.waiting_for_help_message_text)
-    #     await callback.message.edit_text("Введите новый текст для сообщения помощи:")
-    #     await callback.answer()
-    #
-    # @admin_router.message(StateFilter(AdminStates.waiting_for_help_message_text))
-    # async def admin_process_help_message_text(message: Message, state: FSMContext):
-    #     new_help_text = message.text
-    #     await update_or_create_help_message(new_help_text) # Нужно реализовать в db.py
-    #     await message.answer("Сообщение помощи обновлено!")
-    #     await state.clear()
-    #     await AdminHandlers._display_admin_main_menu(message, state) # Вернуться в меню
