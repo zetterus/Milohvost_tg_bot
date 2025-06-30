@@ -2,9 +2,9 @@ import logging
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
+from aiogram.enums import ParseMode
 
 from db import get_active_help_message_from_db
-from .user_utils import _display_user_main_menu # Импортируем функцию для возврата в главное меню
 
 logger = logging.getLogger(__name__)
 router = Router() # Локальный роутер для этого модуля
@@ -28,5 +28,5 @@ async def get_help_callback(callback: CallbackQuery):
     keyboard = InlineKeyboardBuilder()
     keyboard.row(InlineKeyboardButton(text="🔙 В главное меню", callback_data="user_main_menu_back"))
 
-    await callback.message.edit_text(text_to_send, reply_markup=keyboard.as_markup(), parse_mode="Markdown")
+    await callback.message.edit_text(text_to_send, reply_markup=keyboard.as_markup(), parse_mode=ParseMode.HTML)
     await callback.answer()

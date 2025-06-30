@@ -1,5 +1,4 @@
-# models.py
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 
@@ -38,11 +37,10 @@ class HelpMessage(Base):
     __tablename__ = 'help_messages' # Обновленное название таблицы
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    title = Column(String, nullable=False, unique=True) # Название сообщения (например, "Общая помощь", "Доставка")
     message_text = Column(Text, nullable=False) # Сам текст сообщения помощи
     is_active = Column(Boolean, default=False) # Флаг: True, если это текущее активное сообщение
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
     def __repr__(self):
-        return f"<HelpMessage(id={self.id}, title='{self.title}', is_active={self.is_active})>"
+        return f"<HelpMessage(id={self.id}, is_active={self.is_active})>"

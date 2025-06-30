@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 router = Router()  # Локальный роутер для этого модуля
 
 
-@router.message(IsAdmin())
 async def _display_admin_main_menu(update_object: Message | CallbackQuery, state: FSMContext):
     """
     Отображает главное меню админ-панели.
@@ -43,11 +42,11 @@ async def _display_admin_main_menu(update_object: Message | CallbackQuery, state
 
 
 async def _display_orders_paginated(
-    update_object: Message | CallbackQuery,
-    state: FSMContext,
-    current_page: int,
-    is_search: bool = False  # Флаг: это результаты поиска или все заказы
-    ):
+        update_object: Message | CallbackQuery,
+        state: FSMContext,
+        current_page: int,
+        is_search: bool = False  # Флаг: это результаты поиска или все заказы
+):
     """
 
     Отображает список заказов с пагинацией в админ-панели.
@@ -163,4 +162,3 @@ async def _display_orders_paginated(
         await update_object.answer()
         await update_object.message.edit_text(orders_content_text, reply_markup=final_keyboard.as_markup(),
                                               parse_mode="HTML")
-
