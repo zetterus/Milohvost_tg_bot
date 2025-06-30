@@ -1,15 +1,14 @@
 # handlers/user_handlers.py
-from aiogram import Router, F
+from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
 
 import logging
 
 from db import add_new_order, get_active_help_message_from_db, get_user_orders_paginated, \
     count_user_orders
-from config import ORDERS_PER_PAGE, ORDER_STATUS_MAP
-from models import Order, HelpMessage
+from config import ORDERS_PER_PAGE, ORDER_STATUS_MAP, MAX_PREVIEW_TEXT_LENGTH, DISPLAY_FIELD_NAMES
 
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
@@ -36,14 +35,25 @@ class UserHandlers:
     Класс для обработки команд и взаимодействий обычных пользователей.
     """
 
-    DISPLAY_FIELD_NAMES = {
-        'order_text': 'текст заказа',  # Добавим и для текста заказа, хоть он и обрабатывается отдельно
-        'full_name': 'полное имя',
-        'delivery_address': 'адрес доставки',
-        'payment_method': 'способ оплаты',  # Добавим и для способа оплаты
-        'contact_phone': 'контактный телефон',
-        'delivery_notes': 'примечания к доставке'
-    }
+    @staticmethod
+    async def _display_user_main_menu(update_object: Message | CallbackQuery):
+        """
+        Отображает главное меню для пользователя.
+        :param update_object: Объект Message или CallbackQuery, инициировавший отображение.
+        """
+        keyboard = InlineKeyboardBuilder()
+        keyboard.button(text="Сделать заказ 📝", callback_data="make_order")
+        keyboard.button(text="Посмотреть мои заказы 📦", callback_data="view_my_orders")
+        keyboard.button(text="Помощь ❓", callback_data="get_help")
+        keyboard.adjust(1)
+
+        menu_text = "Привет! Я бот для оформления заказов. Что ты хочешь сделать?"
+
+        if isinstance(update_object, Message):
+            await update_object.answer(menu_text, reply_markup=keyboard.as_markup())
+        elif isinstance(update_object, CallbackQuery):
+            await update_object.message.edit_text(menu_text, reply_markup=keyboard.as_markup())
+            await update_object.answer()  # Закрываем уведомление о нажатии кнопки
 
     @user_router.message(Command("start"))
     async def start_command(message: Message):
@@ -52,17 +62,15 @@ class UserHandlers:
         Отправляет приветственное сообщение и главное меню с инлайн-кнопками.
         """
         logger.info(f"Получена команда /start от пользователя {message.from_user.id}")
+        await UserHandlers._display_user_main_menu(message)
 
-        keyboard = InlineKeyboardBuilder()
-        keyboard.button(text="Сделать заказ 📝", callback_data="make_order")
-        keyboard.button(text="Посмотреть мои заказы 📦", callback_data="view_my_orders")
-        keyboard.button(text="Помощь ❓", callback_data="get_help")
-        keyboard.adjust(1)  # Размещаем кнопки по одной в ряд
-
-        await message.answer(
-            "Привет! Я твой бот для оформления заказов. Что ты хочешь сделать?",
-            reply_markup=keyboard.as_markup()
-        )
+    @user_router.callback_query(F.data == "user_main_menu_back")
+    async def user_main_menu_back_callback(callback: CallbackQuery):
+        """
+        Обрабатывает возврат пользователя в главное меню из любой точки.
+        """
+        logger.info(f"Пользователь {callback.from_user.id} вернулся в главное меню.")
+        await UserHandlers._display_user_main_menu(callback)
 
     @user_router.callback_query(F.data == "make_order")
     async def make_order_callback(callback: CallbackQuery, state: FSMContext):
@@ -202,7 +210,7 @@ class UserHandlers:
         keyboard.adjust(2)
 
         # Более читабельный текст для пользователя
-        display_field_name = UserHandlers.DISPLAY_FIELD_NAMES.get(field_to_save, field_to_save.replace('_', ' '))
+        display_field_name = DISPLAY_FIELD_NAMES.get(field_to_save, field_to_save.replace('_', ' '))
 
         await message.answer(
             f"*{display_field_name.capitalize()}*: *{message.text}*\n\nВсё верно?",
@@ -247,7 +255,7 @@ class UserHandlers:
         user_data = await state.get_data()
 
         order_summary_parts = []
-        for key, display_name in UserHandlers.DISPLAY_FIELD_NAMES.items():
+        for key, display_name in DISPLAY_FIELD_NAMES.items():
             value = user_data.get(key)
             if value:  # Если значение есть, добавляем его в сводку
                 order_summary_parts.append(f"*{display_name.capitalize()}*: {value}")
@@ -298,20 +306,22 @@ class UserHandlers:
         await callback.answer()
 
     @user_router.callback_query(F.data == "view_my_orders")
-    async def view_my_orders_callback(callback: CallbackQuery, state: FSMContext):  # <-- Добавь state: FSMContext
+    async def view_my_orders_callback(callback: CallbackQuery, state: FSMContext, bot: Bot):
         """
         Обрабатывает нажатие инлайн-кнопки "Посмотреть мои заказы".
         """
         logger.info(f"Пользователь {callback.from_user.id} нажал 'Посмотреть мои заказы'")
         # Вместо TODO и заглушки, вызываем нашу новую функцию
-        await UserHandlers.show_user_orders(callback, state, page=0)  # <-- Вызываем функцию пагинации с первой страницы
+        await UserHandlers.show_user_orders(callback, state, bot,
+                                            page=0)  # <-- Вызываем функцию пагинации с первой страницы
 
     @staticmethod
-    async def show_user_orders(message: Message | CallbackQuery, state: FSMContext, page: int = 0):
+    async def show_user_orders(update_object: Message | CallbackQuery, state: FSMContext, bot: Bot,
+                               page: int = 0):
         """
         Показывает пользователю его заказы с пагинацией.
         """
-        user_id = message.from_user.id
+        user_id = update_object.from_user.id
         offset = page * ORDERS_PER_PAGE
 
         user_orders = await get_user_orders_paginated(user_id, offset, ORDERS_PER_PAGE)
@@ -325,7 +335,7 @@ class UserHandlers:
                 display_status = ORDER_STATUS_MAP.get(order.status, order.status)
                 orders_list_text += (
                     f"**Заказ №{order.id}** (Статус: {display_status})\n"
-                    f"  *Текст:* {order.order_text[:70]}...\n"
+                    f"  *Текст:* {order.order_text[:MAX_PREVIEW_TEXT_LENGTH]}...\n"
                     f"  *Дата:* {order.created_at.strftime('%d.%m.%Y %H:%M')}\n"
                 )
                 if i < len(user_orders) - 1:
@@ -339,43 +349,37 @@ class UserHandlers:
                 keyboard.button(text="Вперед ➡️", callback_data=f"my_orders_page:{page + 1}")
             keyboard.adjust(2)  # Выравниваем кнопки
 
-            if isinstance(message, CallbackQuery):
-                await message.message.edit_text(  # <-- ВОТ ГДЕ ОШИБКА БЫЛА! Нужен message.message
-                    orders_list_text,
-                    reply_markup=keyboard.as_markup(),
-                    parse_mode="Markdown"
-                )
-            else:  # Это для объектов Message (как при команде /myorders)
-                await message.answer(
-                    orders_list_text,
-                    reply_markup=keyboard.as_markup(),
-                    parse_mode="Markdown"
-                )
+            # Добавим кнопку "В главное меню"
+            keyboard.row(InlineKeyboardButton(text="🔙 В главное меню", callback_data="user_main_menu_back"))
 
-        else:
-            if isinstance(message, CallbackQuery):
-                await message.message.edit_text(
-                    "У тебя пока нет заказов.",
-                    parse_mode="Markdown"
-                )
-            else:  # Это для объектов Message
-                await message.answer(
-                    "У тебя пока нет заказов.",
-                    parse_mode="Markdown"
-                )
+            await bot.send_message(
+                chat_id=update_object.chat.id,
+                text=orders_list_text,
+                reply_markup=keyboard.as_markup(),
+                parse_mode="Markdown"
+            )
 
-        await state.update_data(current_orders_page=page)  # Сохраняем текущую страницу
-        if isinstance(message, CallbackQuery):
-            await message.answer()  # Закрываем уведомление о нажатии кнопки
+        else:  # Если заказов нет
+            text_no_orders = "У тебя пока нет заказов."
+            keyboard_no_orders = InlineKeyboardBuilder()
+            keyboard_no_orders.button(text="🔙 В главное меню", callback_data="user_main_menu_back")
+
+            await bot.send_message(  # <-- Используем bot
+                chat_id=update_object.chat.id,
+                text=text_no_orders,
+                reply_markup=keyboard_no_orders.as_markup(),
+                parse_mode="Markdown"
+            )
+
+        await state.update_data(current_orders_page=page)
+        if isinstance(update_object, CallbackQuery):
+            await update_object.answer()  # Закрываем уведомление о нажатии кнопки
 
     @user_router.callback_query(F.data.startswith("my_orders_page:"))
-    async def navigate_my_orders_page(callback: CallbackQuery, state: FSMContext):
-        """
-        Обрабатывает нажатия кнопок пагинации для заказов пользователя.
-        """
+    async def navigate_my_orders_page(callback: CallbackQuery, state: FSMContext, bot: Bot):  # <-- Добавлен bot
         page = int(callback.data.split(":")[1])
         logger.info(f"Пользователь {callback.from_user.id} перешел на страницу {page} заказов.")
-        await UserHandlers.show_user_orders(callback, state, page)
+        await UserHandlers.show_user_orders(callback, state, bot, page)  # <-- Передаем bot
 
     @user_router.callback_query(F.data == "get_help")
     async def get_help_callback(callback: CallbackQuery):

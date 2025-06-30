@@ -8,8 +8,8 @@ from aiogram.client.default import DefaultBotProperties
 
 from config import BOT_TOKEN, LOGGING_LEVEL
 from db import create_tables_async
-from handlers.user_handlers import user_router
-from handlers.admin_handlers import admin_router
+from handlers import user_router, admin_router
+
 
 # Настройка логирования
 logging.basicConfig(level=LOGGING_LEVEL, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -21,8 +21,8 @@ async def main():
     """
     logger.info("Запуск бота...")
 
-    # Инициализируем базу данных (теперь это просто подготовка, создание таблиц будет асинхронным)
-    await create_tables_async()  # <-- ДОБАВЛЕНО: асинхронное создание таблиц
+    # Инициализируем базу данных
+    await create_tables_async()  # асинхронное создание таблиц
 
     # Инициализируем бота с дефолтными свойствами
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
