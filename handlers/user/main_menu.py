@@ -6,14 +6,15 @@ from aiogram.filters import Command
 from .user_utils import _display_user_main_menu
 
 logger = logging.getLogger(__name__)
-router = Router()  # Локальный роутер для этого модуля
+router = Router()
 
 
 @router.message(Command("start"))
 async def start_command(message: Message, state: FSMContext):
     """
     Обрабатывает команду /start.
-    Отправляет приветственное сообщение и главное меню с инлайн-кнопками.
+    Отправляет приветственное сообщение и главное меню с инлайн-кнопками,
+    сбрасывая FSM-состояние пользователя.
     """
     logger.info(f"Получена команда /start от пользователя {message.from_user.id}")
     await _display_user_main_menu(message, state)
@@ -22,7 +23,9 @@ async def start_command(message: Message, state: FSMContext):
 @router.callback_query(F.data == "user_main_menu_back")
 async def user_main_menu_back_callback(callback: CallbackQuery, state: FSMContext):
     """
-    Обрабатывает возврат пользователя в главное меню из любой точки.
+    Обрабатывает возврат пользователя в главное меню из любого подменю.
+    Редактирует текущее сообщение, отображая главное меню пользователя,
+    и сбрасывает FSM-состояние.
     """
     logger.info(f"Пользователь {callback.from_user.id} вернулся в главное меню.")
     await _display_user_main_menu(callback, state)

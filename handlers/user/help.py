@@ -1,4 +1,5 @@
 import logging
+
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
@@ -7,7 +8,8 @@ from aiogram.enums import ParseMode
 from db import get_active_help_message_from_db
 
 logger = logging.getLogger(__name__)
-router = Router() # Локальный роутер для этого модуля
+router = Router()
+
 
 @router.callback_query(F.data == "get_help")
 async def get_help_callback(callback: CallbackQuery):
@@ -19,11 +21,8 @@ async def get_help_callback(callback: CallbackQuery):
 
     active_message = await get_active_help_message_from_db()
 
-    text_to_send = ""
-    if active_message:
-        text_to_send = active_message.message_text
-    else:
-        text_to_send = "Извини, сообщение помощи пока не настроено."
+    # Определяем текст для отправки в зависимости от наличия активного сообщения
+    text_to_send = active_message.message_text if active_message else "Извини, сообщение помощи пока не настроено."
 
     keyboard = InlineKeyboardBuilder()
     keyboard.row(InlineKeyboardButton(text="🔙 В главное меню", callback_data="user_main_menu_back"))
