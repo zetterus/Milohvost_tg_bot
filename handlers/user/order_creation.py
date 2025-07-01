@@ -258,8 +258,7 @@ async def process_contact_phone(message: Message, state: FSMContext):
     if message.contact and message.contact.user_id == user_id:
         contact_phone = message.contact.phone_number
         logger.info(f"Пользователь {user_id} отправил номер телефона через кнопку: {contact_phone}")
-        # Telegram сам уберет Reply-клавиатуру, когда пользователь нажмет кнопку.
-        # Поэтому здесь ничего дополнительно убирать не нужно.
+        # Reply-клавиатура автоматически убирается Telegram
     elif message.text:
         # Проверяем формат для ручного ввода
         if re.fullmatch(PHONE_NUMBER_REGEX, message.text):
@@ -288,21 +287,13 @@ async def process_contact_phone(message: Message, state: FSMContext):
         next_field_config = ORDER_FIELD_MAP.get("contact_phone", {})
         next_field_key = next_field_config.get("next_field")
 
-        # Получаем данные из FSM-контекста
-        user_data = await state.get_data()
-
-        # Формируем сообщение для подтверждения
-        review_message_text = (
-            f"<b>Проверь свои данные:</b>\n\n"
-            f"<b>Заказ:</b> {html.escape(user_data.get('order_text', ''))}\n"
-            f"<b>Имя:</b> {html.escape(user_data.get('full_name', ''))}\n"
-            f"<b>Адрес:</b> {html.escape(user_data.get('delivery_address', ''))}\n"
-            f"<b>Оплата:</b> {html.escape(user_data.get('payment_method', ''))}\n"
-            f"<b>Телефон:</b> {html.escape(contact_phone)}\n\n"
+        # Формируем сообщение для подтверждения ТОЛЬКО номера телефона
+        confirm_message_text = (
+            f"<b>Контактный телефон:</b> {html.escape(contact_phone)}\n\n"
             f"Всё верно? Подтверди, чтобы перейти к следующему шагу, или нажми 'Отмена'."
         )
 
-        # Создаем Inline-клавиатуру
+        # Создаем Inline-клавиатуру для подтверждения
         keyboard = InlineKeyboardBuilder()
         keyboard.button(text="Подтвердить ✅", callback_data=f"confirm_input:{next_field_key}")
         keyboard.button(text="Отменить ❌", callback_data="cancel_order")
@@ -310,13 +301,13 @@ async def process_contact_phone(message: Message, state: FSMContext):
 
         # Отправляем НОВОЕ сообщение с Inline-клавиатурой
         await message.answer(
-            text=review_message_text,
+            text=confirm_message_text,
             reply_markup=keyboard.as_markup(),
             parse_mode=ParseMode.HTML
         )
 
-        # Переводим пользователя в следующее состояние
-        await state.set_state(getattr(OrderStates, ORDER_FIELD_MAP.get(next_field_key, {}).get("state_name")))
+        # Мы не переводим пользователя в следующее состояние здесь.
+        # Переход произойдет, когда он нажмет "Подтвердить ✅".
 
 
 @router.callback_query(F.data.startswith("set_payment_method:"))
