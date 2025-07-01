@@ -1,5 +1,5 @@
 import logging
-from typing import List, Optional, Tuple, Any
+from typing import List, Optional, Tuple
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -36,28 +36,23 @@ engine: AsyncEngine = create_async_engine(
 
 
 @event.listens_for(engine.sync_engine, "connect")
-def _register_sqlite_functions_and_pragmas(dbapi_connection: Any, _connection_record: Any) -> None:
+def _register_sqlite_functions_and_pragmas(dbapi_connection, _connection_record):
     """
-    Слушатель, который получает объект адаптера DBAPI,
+    Слушатель, который получает объект адаптера DBAPI (AsyncAdapt_aiosqlite_connection),
     использует его напрямую для регистрации пользовательских функций и установки прагм.
-    Этот слушатель срабатывает для каждого нового соединения в пуле.
     """
-    # Проверяем, что это соединение aiosqlite, чтобы зарегистрировать функцию
     if isinstance(dbapi_connection, AsyncAdapt_aiosqlite_connection):
-        # The 'dbapi_connection.connection' attribute gives the underlying aiosqlite.Connection
-        dbapi_connection.connection.create_function("LOWER", 1, _sqlite_unicode_lower) # type: ignore[attr-defined]
+        dbapi_connection.create_function("LOWER", 1, _sqlite_unicode_lower)
         logger.debug("SQLite: Пользовательская функция LOWER (Unicode-aware) успешно зарегистрирована.")
 
         try:
-            # Выполняем PRAGMA-запросы
             dbapi_connection.execute("PRAGMA journal_mode = WAL;")
             dbapi_connection.execute("PRAGMA foreign_keys = ON;")
             logger.debug("SQLite: Прагмы 'journal_mode=WAL' и 'foreign_keys=ON' успешно установлены.")
         except Exception as e:
             logger.error(f"Ошибка при установке прагм SQLite: {e}")
     else:
-        logger.error(
-            f"Слушатель событий получил неожиданный тип DBAPI-соединения: {type(dbapi_connection)}. Ожидается AsyncAdapt_aiosqlite_connection.")
+        logger.error(f"Слушатель событий получил неожиданный тип DBAPI-соединения: {type(dbapi_connection)}. Ожидается AsyncAdapt_aiosqlite_connection.")
 
 
 # Асинхронная фабрика сессий
@@ -79,7 +74,7 @@ async def get_db_session() -> AsyncSession:  # Уточнен тип возвр�
     """
     db: AsyncSession = AsyncSessionLocal()
     try:
-        yield db  # type: ignore[call-arg, misc]
+        yield db
     except Exception as e:
         await db.rollback()  # Откатываем транзакцию при ошибке
         logger.error(f"Ошибка в сессии базы данных, выполнен откат: {e}")
@@ -227,7 +222,7 @@ async def update_order_status(order_id: int, new_status: str) -> Optional[Order]
             await db.commit()
             await db.refresh(order)  # Обновляем объект, чтобы отразить изменения из БД
             logger.info(f"Статус заказа ID {order.id} обновлен на '{new_status}'.")
-            return order  # type: ignore[call-arg, misc]
+            return order
         logger.warning(f"Попытка обновить статус несуществующего заказа ID {order_id}.")
         return None
 
@@ -305,7 +300,7 @@ async def update_order_text(order_id: int, new_text: str) -> Optional[Order]:
             await db.commit()
             await db.refresh(order)
             logger.info(f"Текст заказа ID {order.id} успешно обновлен.")
-            return order  # type: ignore[call-arg, misc]
+            return order
         logger.warning(f"Попытка обновить текст несуществующего заказа ID {order_id}.")
         return None
 
@@ -399,7 +394,7 @@ async def set_active_help_message(message_id: int) -> Optional[HelpMessage]:
                 await db.commit()  # Коммитим обе операции
                 await db.refresh(selected_message)
                 logger.info(f"Сообщение помощи ID {message_id} успешно активировано.")
-                return selected_message  # type: ignore[call-arg, misc]
+                return selected_message
             else:
                 # Если сообщение не найдено, откатываем деактивацию
                 await db.rollback()

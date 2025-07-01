@@ -1,11 +1,12 @@
 import logging
 import urllib.parse
+import html
 
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup
 from aiogram.filters import StateFilter
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
-from aiogram.utils.markdown import hbold, hcode
+from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
 
 from config import ORDER_STATUS_MAP
@@ -30,17 +31,28 @@ async def _build_order_details_and_keyboard(order_id: int, state: FSMContext) ->
         return "Заказ не найден.", None
 
     display_status = ORDER_STATUS_MAP.get(order.status, order.status)
+
+    # ВАЖНО: Экранируем пользовательский ввод, чтобы избежать XSS-уязвимостей
+    # Текст заказа, ФИО, адрес и т.д. могут содержать HTML-теги.
+    escaped_order_text = html.escape(order.order_text)
+    escaped_full_name = html.escape(order.full_name or 'Не указано')
+    escaped_delivery_address = html.escape(order.delivery_address or 'Не указан')
+    escaped_payment_method = html.escape(order.payment_method or 'Не указан')
+    escaped_contact_phone = html.escape(order.contact_phone or 'Не указан')
+    escaped_delivery_notes = html.escape(order.delivery_notes or 'Нет')
+
+    # Заменяем hbold и hcode на HTML-теги
     order_details_text = (
-        f"{hbold('Детали заказа № ')}{hbold(str(order.id))}\n\n"
-        f"{hbold('Пользователь:')} {hbold(order.username or 'N/A')} ({order.user_id})\n"
-        f"{hbold('Статус:')} {hbold(display_status)}\n"
-        f"{hbold('Текст заказа:')}\n{hcode(order.order_text)}\n"
-        f"{hbold('ФИО:')} {order.full_name or 'Не указано'}\n"
-        f"{hbold('Адрес доставки:')} {order.delivery_address or 'Не указан'}\n"
-        f"{hbold('Метод оплаты:')} {order.payment_method or 'Не указан'}\n"
-        f"{hbold('Телефон:')} {order.contact_phone or 'Не указан'}\n"
-        f"{hbold('Примечания:')} {order.delivery_notes or 'Нет'}\n"
-        f"{hbold('Дата создания:')} {order.created_at.strftime('%d.%m.%Y %H:%M:%S')}\n"
+        f"<b>Детали заказа № {order.id}</b>\n\n"
+        f"<b>Пользователь:</b> <b>{order.username or 'N/A'}</b> ({order.user_id})\n"
+        f"<b>Статус:</b> <b>{display_status}</b>\n"
+        f"<b>Текст заказа:</b>\n<code>{escaped_order_text}</code>\n"
+        f"<b>ФИО:</b> {escaped_full_name}\n"
+        f"<b>Адрес доставки:</b> {escaped_delivery_address}\n"
+        f"<b>Метод оплаты:</b> {escaped_payment_method}\n"
+        f"<b>Телефон:</b> {escaped_contact_phone}\n"
+        f"<b>Примечания:</b> {escaped_delivery_notes}\n"
+        f"<b>Дата создания:</b> {order.created_at.strftime('%d.%m.%Y %H:%M:%S')}\n"
     )
 
     status_keyboard = InlineKeyboardBuilder()
@@ -100,7 +112,7 @@ async def admin_view_order_details_callback(callback: CallbackQuery, state: FSMC
     await callback.message.edit_text(
         order_details_text,
         reply_markup=keyboard_markup,
-        parse_mode="HTML"
+        parse_mode=ParseMode.HTML
     )
     await callback.answer()
 
@@ -138,7 +150,7 @@ async def admin_change_order_status_callback(callback: CallbackQuery, state: FSM
             message_id=callback.message.message_id,
             text=order_details_text,
             reply_markup=keyboard_markup,
-            parse_mode="HTML"
+            parse_mode=ParseMode.HTML
         )
     else:
         await bot.answer_callback_query(callback.id, "Не удалось изменить статус заказа. Заказ не найден.",
@@ -148,7 +160,7 @@ async def admin_change_order_status_callback(callback: CallbackQuery, state: FSM
             chat_id=callback.message.chat.id,
             message_id=callback.message.message_id,
             text="Ошибка: Заказ не найден или не удалось обновить статус.",
-            parse_mode="HTML"
+            parse_mode=ParseMode.HTML
         )
 
 
@@ -159,7 +171,8 @@ async def admin_edit_order_text_callback(callback: CallbackQuery, state: FSMCont
     Запрашивает новый текст и переводит в состояние ожидания ввода.
     """
     try:
-        order_id = int(callback.data.split("_")[4])  # admin_edit_order_text_ORDER_ID
+        # Используем split('_') с ограничением
+        order_id = int(callback.data.split("_", 4)[4])  # admin_edit_order_text_ORDER_ID
     except (ValueError, IndexError):
         logger.error(
             f"Админ {callback.from_user.id}: Неверный формат callback_data для редактирования текста: {callback.data}")
@@ -180,7 +193,7 @@ async def admin_edit_order_text_callback(callback: CallbackQuery, state: FSMCont
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Отмена", callback_data=f"view_order_{order_id}")]
         ]),
-        parse_mode="HTML"
+        parse_mode=ParseMode.HTML
     )
     await callback.answer()
 
@@ -204,7 +217,7 @@ async def admin_process_new_order_text(message: Message, state: FSMContext, bot:
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="В админ-панель", callback_data="admin_panel_back")]
             ]),
-            parse_mode="HTML"
+            parse_mode=ParseMode.HTML
         )
         await state.clear()
         return
@@ -218,7 +231,7 @@ async def admin_process_new_order_text(message: Message, state: FSMContext, bot:
 
     if updated_order:
         # Отправляем подтверждение в чат админа
-        await message.answer(f"Текст заказа №{order_id} успешно обновлен!", parse_mode="HTML")
+        await message.answer(f"Текст заказа №{order_id} успешно обновлен!", parse_mode=ParseMode.HTML)
 
         # Редактируем исходное сообщение с деталями заказа
         order_details_text, keyboard_markup = await _build_order_details_and_keyboard(order_id, state)
@@ -227,10 +240,10 @@ async def admin_process_new_order_text(message: Message, state: FSMContext, bot:
             message_id=original_message_id,
             text=order_details_text,
             reply_markup=keyboard_markup,
-            parse_mode="HTML"
+            parse_mode=ParseMode.HTML
         )
     else:
-        await message.answer("Не удалось обновить текст заказа. Заказ не найден.", parse_mode="HTML")
+        await message.answer("Не удалось обновить текст заказа. Заказ не найден.", parse_mode=ParseMode.HTML)
         # В случае неудачи, пытаемся обновить исходное сообщение, чтобы оно не осталось в состоянии редактирования
         # Если _build_order_details_and_keyboard вернет текст "Заказ не найден.", это будет корректно
         order_details_text, keyboard_markup = await _build_order_details_and_keyboard(order_id, state)
@@ -239,7 +252,7 @@ async def admin_process_new_order_text(message: Message, state: FSMContext, bot:
             message_id=original_message_id,
             text=order_details_text,
             reply_markup=keyboard_markup,
-            parse_mode="HTML"
+            parse_mode=ParseMode.HTML
         )
 
 
@@ -249,7 +262,8 @@ async def admin_confirm_delete_order_callback(callback: CallbackQuery, state: FS
     Запрашивает подтверждение удаления заказа.
     """
     try:
-        order_id = int(callback.data.split("_")[4])  # admin_confirm_delete_order_ORDER_ID
+        # Используем split('_') с ограничением
+        order_id = int(callback.data.split("_", 4)[4])  # admin_confirm_delete_order_ORDER_ID
     except (ValueError, IndexError):
         logger.error(
             f"Админ {callback.from_user.id}: Неверный формат callback_data для подтверждения удаления: {callback.data}")
@@ -274,7 +288,7 @@ async def admin_confirm_delete_order_callback(callback: CallbackQuery, state: FS
     await callback.message.edit_text(
         f"Вы уверены, что хотите удалить заказ №{order_id}?",
         reply_markup=confirm_keyboard.as_markup(),
-        parse_mode="HTML"
+        parse_mode=ParseMode.HTML
     )
     await callback.answer()
 
@@ -285,7 +299,8 @@ async def admin_delete_order_callback(callback: CallbackQuery, state: FSMContext
     Выполняет удаление заказа после подтверждения.
     """
     try:
-        order_id = int(callback.data.split("_")[3])  # admin_delete_order_ORDER_ID
+        # Используем split('_') с ограничением
+        order_id = int(callback.data.split("_", 3)[3])  # admin_delete_order_ORDER_ID
     except (ValueError, IndexError):
         logger.error(f"Админ {callback.from_user.id}: Неверный формат callback_data для удаления: {callback.data}")
         await bot.answer_callback_query(callback.id, "Ошибка: Неверный формат данных.", show_alert=True)
@@ -301,7 +316,7 @@ async def admin_delete_order_callback(callback: CallbackQuery, state: FSMContext
             chat_id=callback.message.chat.id,
             message_id=callback.message.message_id,
             text=f"Заказ №{order_id} успешно удален.",
-            parse_mode="HTML"
+            parse_mode=ParseMode.HTML
         )
         await bot.answer_callback_query(callback.id, text=f"Заказ №{order_id} успешно удален.")
 
@@ -314,12 +329,13 @@ async def admin_delete_order_callback(callback: CallbackQuery, state: FSMContext
         await _display_orders_paginated(callback, state, current_page=1, is_search=False)
     else:
         await bot.answer_callback_query(callback.id, text="Не удалось удалить заказ. Заказ не найден.", show_alert=True)
-        # Если удаление не удалось, возвращаем пользователя к деталям заказа
+        # В случае неудачи, пытаемся обновить исходное сообщение, чтобы оно не осталось в состоянии редактирования
+        # Если _build_order_details_and_keyboard вернет текст "Заказ не найден.", это будет корректно
         order_details_text, keyboard_markup = await _build_order_details_and_keyboard(order_id, state)
         await bot.edit_message_text(
             chat_id=callback.message.chat.id,
             message_id=callback.message.message_id,
             text=order_details_text,
             reply_markup=keyboard_markup,
-            parse_mode="HTML"
+            parse_mode=ParseMode.HTML
         )

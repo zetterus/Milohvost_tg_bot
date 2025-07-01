@@ -1,11 +1,12 @@
 import logging
 from typing import Union
+import html  # Импортируем модуль для экранирования HTML
 
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
-from aiogram.enums import ParseMode # Явный импорт ParseMode
+from aiogram.enums import ParseMode  # Явный импорт ParseMode
 
 from db import get_user_orders_paginated, count_user_orders
 from config import ORDERS_PER_PAGE, ORDER_STATUS_MAP, MAX_PREVIEW_TEXT_LENGTH
@@ -38,7 +39,8 @@ async def _show_user_orders(update_object: Union[Message, CallbackQuery], state:
     """
     user_id = update_object.from_user.id
     chat_id = update_object.message.chat.id if isinstance(update_object, CallbackQuery) else update_object.chat.id
-    message_id = update_object.message.message_id if isinstance(update_object, CallbackQuery) else update_object.message_id
+    message_id = update_object.message.message_id if isinstance(update_object,
+                                                                CallbackQuery) else update_object.message_id
 
     offset = page * ORDERS_PER_PAGE
 
@@ -47,7 +49,7 @@ async def _show_user_orders(update_object: Union[Message, CallbackQuery], state:
     # Вычисляем общее количество страниц, минимум 1, чтобы избежать деления на ноль и отображения 0/0
     total_pages = (total_orders + ORDERS_PER_PAGE - 1) // ORDERS_PER_PAGE if total_orders > 0 else 1
 
-    orders_list_text = f"**Твои заказы (страница {page + 1}/{total_pages}):**\n\n"
+    orders_list_text = f"<b>Твои заказы (страница {page + 1}/{total_pages}):</b>\n\n"
     keyboard = InlineKeyboardBuilder()
 
     if user_orders:
@@ -58,22 +60,25 @@ async def _show_user_orders(update_object: Union[Message, CallbackQuery], state:
             if len(order.order_text) > MAX_PREVIEW_TEXT_LENGTH:
                 preview_text += "..."
 
+            # Экранируем пользовательский текст перед добавлением в строку
+            escaped_preview_text = html.escape(preview_text)
+
             orders_list_text += (
-                f"**Заказ №{order.id}** (Статус: {display_status})\n"
-                f"  *Текст:* {preview_text}\n"
-                f"  *Дата:* {order.created_at.strftime('%d.%m.%Y %H:%M')}\n"
+                f"<b>Заказ №{order.id}</b> (Статус: {display_status})\n"
+                f"  <i>Текст:</i> {escaped_preview_text}\n"
+                f"  <i>Дата:</i> {order.created_at.strftime('%d.%m.%Y %H:%M')}\n"
             )
             if i < len(user_orders) - 1:
-                orders_list_text += "---\n" # Разделитель между заказами
+                orders_list_text += "---\n"  # Разделитель между заказами
 
         # Кнопки пагинации
         if page > 0:
             keyboard.button(text="⬅️ Назад", callback_data=f"my_orders_page:{page - 1}")
         if page < total_pages - 1:
             keyboard.button(text="Вперед ➡️", callback_data=f"my_orders_page:{page + 1}")
-        keyboard.adjust(2) # Размещаем кнопки назад/вперед в одном ряду
+        keyboard.adjust(2)  # Размещаем кнопки назад/вперед в одном ряду
 
-    else: # Если заказов нет
+    else:  # Если заказов нет
         orders_list_text = "У тебя пока нет заказов."
 
     # Кнопка "В главное меню" всегда присутствует
@@ -87,7 +92,7 @@ async def _show_user_orders(update_object: Union[Message, CallbackQuery], state:
             chat_id=chat_id,
             text=orders_list_text,
             reply_markup=reply_markup,
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.HTML  # Меняем на HTML
         )
     elif isinstance(update_object, CallbackQuery):
         # Отвечаем на CallbackQuery перед редактированием, чтобы убрать "часики"
@@ -96,9 +101,9 @@ async def _show_user_orders(update_object: Union[Message, CallbackQuery], state:
             message_id=message_id,
             text=orders_list_text,
             reply_markup=reply_markup,
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.HTML  # Меняем на HTML
         )
-        await update_object.answer() # Отвечаем на callback
+        await update_object.answer()  # Отвечаем на callback
 
     await state.update_data(current_orders_page=page)
 

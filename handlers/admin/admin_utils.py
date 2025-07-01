@@ -7,7 +7,7 @@ from aiogram import Router
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
-from aiogram.utils.markdown import hbold
+from aiogram.enums import ParseMode  # Убедимся, что ParseMode импортирован
 
 from config import ORDER_STATUS_MAP, ORDERS_PER_PAGE, MAX_PREVIEW_TEXT_LENGTH
 from db import get_all_orders, search_orders
@@ -30,14 +30,15 @@ async def _display_admin_main_menu(update_object: Union[Message, CallbackQuery],
     keyboard.button(text="Управление помощью 💬", callback_data="admin_manage_help_messages")
     keyboard.adjust(1)
 
-    text = hbold("Добро пожаловать в админ-панель! Выберите действие:")
+    # Заменяем hbold на HTML-тег <b>
+    text = "<b>Добро пожаловать в админ-панель! Выберите действие:</b>"
     reply_markup = keyboard.as_markup()
 
     if isinstance(update_object, Message):
-        await update_object.answer(text, reply_markup=reply_markup, parse_mode="HTML")
+        await update_object.answer(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
     elif isinstance(update_object, CallbackQuery):
         await update_object.answer()  # Отвечаем на callback, чтобы убрать "часики"
-        await update_object.message.edit_text(text, reply_markup=reply_markup, parse_mode="HTML")
+        await update_object.message.edit_text(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
 
 
 async def _display_orders_paginated(
@@ -70,6 +71,7 @@ async def _display_orders_paginated(
             logger.error(
                 f"Админ {user_id}: Попытка пагинации поиска без search_query в FSM. Возврат в админ-панель.")
             await update_object.answer("Ошибка: поисковый запрос не найден. Начните поиск заново.", show_alert=True)
+            # Убедимся, что передаем тот же объект, чтобы избежать ошибки edit_text
             await _display_admin_main_menu(update_object, state)
             return
 
@@ -82,13 +84,14 @@ async def _display_orders_paginated(
     total_pages = math.ceil(total_orders / ORDERS_PER_PAGE) if total_orders > 0 else 1
 
     # --- Формирование текста заголовка ---
+    # Заменяем hbold на HTML-тег <b>
     if query_text:
-        header_text = hbold(
-            f"Результаты поиска по запросу '{query_text}' (Страница {current_page}/{total_pages}, всего: {total_orders}):"
+        header_text = (
+            f"<b>Результаты поиска по запросу '{query_text}' (Страница {current_page}/{total_pages}, всего: {total_orders}):</b>"
         )
     else:
-        header_text = hbold(
-            f"Список всех заказов (Страница {current_page}/{total_pages}, всего: {total_orders}):"
+        header_text = (
+            f"<b>Список всех заказов (Страница {current_page}/{total_pages}, всего: {total_orders}):</b>"
         )
 
     orders_content_text = header_text + "\n\n"
@@ -150,8 +153,9 @@ async def _display_orders_paginated(
 
     # Отправляем/редактируем сообщение
     if isinstance(update_object, Message):
-        await update_object.answer(orders_content_text, reply_markup=final_keyboard.as_markup(), parse_mode="HTML")
+        await update_object.answer(orders_content_text, reply_markup=final_keyboard.as_markup(),
+                                   parse_mode=ParseMode.HTML)
     elif isinstance(update_object, CallbackQuery):
         await update_object.answer()  # Отвечаем на callback, чтобы убрать "часики"
         await update_object.message.edit_text(orders_content_text, reply_markup=final_keyboard.as_markup(),
-                                              parse_mode="HTML")
+                                              parse_mode=ParseMode.HTML)

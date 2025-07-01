@@ -3,7 +3,6 @@ import logging
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
-from aiogram.utils.markdown import hbold, hcode
 from aiogram.fsm.context import FSMContext
 from aiogram.enums import ParseMode
 
@@ -35,7 +34,8 @@ async def admin_manage_help_messages_callback(callback: CallbackQuery):
     active_message = await get_active_help_message_from_db()
     current_active_status = "❌ Нет активного сообщения"
     if active_message:
-        current_active_status = f"✅ Активное сообщение (ID: {hcode(active_message.id)})"
+        # Заменяем hcode на HTML-тег
+        current_active_status = f"✅ Активное сообщение (ID: <code>{active_message.id}</code>)"
 
     keyboard = InlineKeyboardBuilder()
     keyboard.row(
@@ -63,15 +63,17 @@ async def admin_view_active_help_message_callback(callback: CallbackQuery):
     active_message = await get_active_help_message_from_db()
 
     if active_message:
+        # Заменяем hbold и hcode на HTML-теги
         text_to_display = (
-            f"{hbold('Текущее активное сообщение помощи:')}\n\n"
+            f"<b>Текущее активное сообщение помощи:</b>\n\n"
             f"{active_message.message_text}\n\n"
-            f"{hbold('ID сообщения:')} {hcode(active_message.id)}\n"
-            f"{hbold('Статус:')} {'Активно ✅' if active_message.is_active else 'Неактивно ❌'}\n"
-            f"{hbold('Дата создания:')} {active_message.created_at.strftime('%d.%m.%Y %H:%M:%S')}"
+            f"<b>ID сообщения:</b> <code>{active_message.id}</code>\n"
+            f"<b>Статус:</b> {'Активно ✅' if active_message.is_active else 'Неактивно ❌'}\n"
+            f"<b>Дата создания:</b> {active_message.created_at.strftime('%d.%m.%Y %H:%M:%S')}"
         )
     else:
-        text_to_display = hbold("Активное сообщение помощи не найдено.")
+        # Заменяем hbold на HTML-тег
+        text_to_display = "<b>Активное сообщение помощи не найдено.</b>"
 
     keyboard = InlineKeyboardBuilder()
     keyboard.row(InlineKeyboardButton(text="🔙 К управлению помощью", callback_data="admin_manage_help_messages"))
@@ -128,6 +130,7 @@ async def admin_process_new_help_message_text(message: Message, state: FSMContex
     keyboard.row(InlineKeyboardButton(text="Отменить создание ❌", callback_data="admin_cancel_help_message_creation"))
     keyboard.adjust(1)
 
+    # Заменяем hbold на HTML-теги
     preview_text = (
         f"<b>Предварительный просмотр сообщения:</b>\n\n"
         f"{help_message_text}\n\n"
@@ -163,7 +166,8 @@ async def admin_save_and_activate_help_message(callback: CallbackQuery, state: F
 
     logger.info(f"Админ {callback.from_user.id} сохранил и активировал новое сообщение помощи (ID: {new_help_msg.id}).")
     await callback.message.edit_text(
-        f"✅ Сообщение помощи (ID: {hcode(new_help_msg.id)}) успешно сохранено и активировано.",
+        # Заменяем hcode на HTML-тег
+        f"✅ Сообщение помощи (ID: <code>{new_help_msg.id}</code>) успешно сохранено и активировано.",
         parse_mode=ParseMode.HTML
     )
     await state.clear()
@@ -191,7 +195,8 @@ async def admin_save_only_help_message(callback: CallbackQuery, state: FSMContex
     new_help_msg = await add_help_message(message_text, is_active=False)
     logger.info(f"Админ {callback.from_user.id} сохранил новое сообщение помощи без активации (ID: {new_help_msg.id}).")
     await callback.message.edit_text(
-        f"📝 Сообщение помощи (ID: {hcode(new_help_msg.id)}) успешно сохранено, но не активировано.",
+        # Заменяем hcode на HTML-тег
+        f"📝 Сообщение помощи (ID: <code>{new_help_msg.id}</code>) успешно сохранено, но не активировано.",
         parse_mode=ParseMode.HTML
     )
     await state.clear()
@@ -278,10 +283,11 @@ async def admin_select_help_message(callback: CallbackQuery):
         await callback.answer()
         return
 
+    # Заменяем hbold и hcode на HTML-теги
     text_to_display = (
         f"<b>Детали сообщения помощи:</b>\n\n"
         f"{selected_message.message_text}\n\n"
-        f"<b>ID сообщения:</b> {hcode(selected_message.id)}\n"
+        f"<b>ID сообщения:</b> <code>{selected_message.id}</code>\n"
         f"<b>Статус:</b> {'Активно ✅' if selected_message.is_active else 'Неактивно ❌'}\n"
         f"<b>Дата создания:</b> {selected_message.created_at.strftime('%d.%m.%Y %H:%M:%S')}\n"
         f"<b>Последнее изменение:</b> {selected_message.updated_at.strftime('%d.%m.%Y %H:%M:%S')}"
@@ -318,7 +324,8 @@ async def admin_activate_help_message(callback: CallbackQuery):
 
     if activated_message:
         await callback.message.edit_text(
-            f"✅ Сообщение ID: {hcode(activated_message.id)} успешно активировано.",
+            # Заменяем hcode на HTML-тег
+            f"✅ Сообщение ID: <code>{activated_message.id}</code> успешно активировано.",
             parse_mode=ParseMode.HTML
         )
     else:
@@ -347,7 +354,8 @@ async def admin_confirm_delete_help_message(callback: CallbackQuery):
     keyboard.adjust(1)
 
     await callback.message.edit_text(
-        f"Вы уверены, что хотите удалить сообщение помощи ID: {hcode(message_id)}?",
+        # Заменяем hcode на HTML-тег
+        f"Вы уверены, что хотите удалить сообщение помощи ID: <code>{message_id}</code>?",
         reply_markup=keyboard.as_markup(),
         parse_mode=ParseMode.HTML
     )
@@ -366,7 +374,8 @@ async def admin_delete_help_message_confirmed(callback: CallbackQuery):
 
     if success:
         await callback.message.edit_text(
-            f"🗑️ Сообщение ID: {hcode(message_id)} успешно удалено.",
+            # Заменяем hcode на HTML-тег
+            f"🗑️ Сообщение ID: <code>{message_id}</code> успешно удалено.",
             parse_mode=ParseMode.HTML
         )
     else:

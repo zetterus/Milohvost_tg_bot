@@ -1,6 +1,7 @@
 import logging
 import re
 from typing import Union  # Для Type Hinting
+import html  # Импортируем модуль для экранирования HTML
 
 from aiogram import Router, F
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -39,7 +40,7 @@ async def make_order_callback(callback: CallbackQuery, state: FSMContext):
     # Получаем конфигурацию для первого поля (order_text)
     first_field_config = ORDER_FIELDS_CONFIG[0]
 
-    await callback.message.edit_text(first_field_config["prompt"], parse_mode=ParseMode.MARKDOWN)
+    await callback.message.edit_text(first_field_config["prompt"], parse_mode=ParseMode.HTML)
     # Устанавливаем состояние, используя getattr для получения объекта состояния по имени
     await state.set_state(getattr(OrderStates, first_field_config["state_name"]))
     await callback.answer()
@@ -59,7 +60,7 @@ async def process_order_text(message: Message, state: FSMContext):
         logger.error("Конфигурация для 'order_text' не найдена.")
         await message.answer(
             "Произошла ошибка в процессе оформления заказа. Пожалуйста, попробуйте снова через /start.",
-            parse_mode=ParseMode.HTML  # Используем HTML для форматирования
+            parse_mode=ParseMode.HTML
         )
         await state.clear()
         return
@@ -79,10 +80,11 @@ async def process_order_text(message: Message, state: FSMContext):
     keyboard.button(text="Отменить ❌", callback_data="cancel_order")
     keyboard.adjust(2)
 
+    escaped_text = html.escape(message.text)
     await message.answer(
-        f"Твой заказ: *{message.text}*\n\nВсё верно? Подтверди, чтобы перейти к следующему шагу, или отмени заказ.",
+        f"Твой заказ: <b>{escaped_text}</b>\n\nВсё верно? Подтверди, чтобы перейти к следующему шагу, или отмени заказ.",
         reply_markup=keyboard.as_markup(),
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=ParseMode.HTML
     )
 
 
@@ -121,7 +123,7 @@ async def confirm_input_and_next(callback: CallbackQuery, state: FSMContext):
     state_to_set = getattr(OrderStates, next_field_config["state_name"])
 
     if input_type == "text":
-        await callback.message.edit_text(prompt_text, parse_mode=ParseMode.MARKDOWN)
+        await callback.message.edit_text(prompt_text, parse_mode=ParseMode.HTML)
         await state.set_state(state_to_set)
     elif input_type == "buttons":
         keyboard = InlineKeyboardBuilder()
@@ -131,7 +133,7 @@ async def confirm_input_and_next(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text(
             prompt_text,
             reply_markup=keyboard.as_markup(),
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.HTML
         )
         await state.set_state(state_to_set)
     elif input_type == "contact_button":
@@ -148,7 +150,7 @@ async def confirm_input_and_next(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(
             prompt_text,
             reply_markup=reply_keyboard,
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.HTML
         )
         await state.set_state(state_to_set)
     else:
@@ -181,10 +183,11 @@ async def process_full_name_input(message: Message, state: FSMContext):
 
     display_field_name = DISPLAY_FIELD_NAMES.get("full_name", "Полное имя")
 
+    escaped_text = html.escape(message.text)
     await message.answer(
-        f"*{display_field_name.capitalize()}*: *{message.text}*\n\nВсё верно?",
+        f"<b>{display_field_name.capitalize()}</b>: <b>{escaped_text}</b>\n\nВсё верно?",
         reply_markup=keyboard.as_markup(),
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=ParseMode.HTML
     )
 
 
@@ -207,10 +210,11 @@ async def process_delivery_address_input(message: Message, state: FSMContext):
 
     display_field_name = DISPLAY_FIELD_NAMES.get("delivery_address", "Адрес доставки")
 
+    escaped_text = html.escape(message.text)
     await message.answer(
-        f"*{display_field_name.capitalize()}*: *{message.text}*\n\nВсё верно?",
+        f"<b>{display_field_name.capitalize()}</b>: <b>{escaped_text}</b>\n\nВсё верно?",
         reply_markup=keyboard.as_markup(),
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=ParseMode.HTML
     )
 
 
@@ -233,10 +237,11 @@ async def process_delivery_notes_input(message: Message, state: FSMContext):
 
     display_field_name = DISPLAY_FIELD_NAMES.get("delivery_notes", "Примечания к доставке")
 
+    escaped_text = html.escape(message.text)
     await message.answer(
-        f"*{display_field_name.capitalize()}*: *{message.text}*\n\nВсё верно?",
+        f"<b>{display_field_name.capitalize()}</b>: <b>{escaped_text}</b>\n\nВсё верно?",
         reply_markup=keyboard.as_markup(),
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=ParseMode.HTML
     )
 
 
@@ -247,59 +252,71 @@ async def process_contact_phone(message: Message, state: FSMContext):
     Проверяет формат для ручного ввода.
     """
     contact_phone = None
+    user_id = message.from_user.id
 
-    if message.contact:
+    # Сначала проверяем, был ли отправлен контакт через кнопку
+    if message.contact and message.contact.user_id == user_id:
         contact_phone = message.contact.phone_number
-        logger.info(f"Пользователь {message.from_user.id} отправил номер телефона через кнопку: {contact_phone}")
+        logger.info(f"Пользователь {user_id} отправил номер телефона через кнопку: {contact_phone}")
+        # Telegram сам уберет Reply-клавиатуру, когда пользователь нажмет кнопку.
+        # Поэтому здесь ничего дополнительно убирать не нужно.
     elif message.text:
-        # Удаляем Reply-клавиатуру, если пользователь ввел номер вручную
-        await message.answer("Обрабатываем номер...", reply_markup=ReplyKeyboardRemove())
+        # Проверяем формат для ручного ввода
         if re.fullmatch(PHONE_NUMBER_REGEX, message.text):
             contact_phone = message.text
-            logger.info(f"Пользователь {message.from_user.id} ввел номер телефона вручную: {contact_phone}")
+            logger.info(f"Пользователь {user_id} ввел номер телефона вручную: {contact_phone}")
+            # Убираем Reply-клавиатуру, отправляя новое сообщение с пустой клавиатурой
+            await message.answer("Спасибо, обрабатываем...", reply_markup=ReplyKeyboardRemove())
         else:
+            # Неверный формат - остаемся в этом же состоянии
             await message.answer(
-                "Неверный формат номера телефона. Пожалуйста, используйте формат +380XXXXXXXXX или нажмите кнопку.",
+                "Неверный формат номера телефона. Пожалуйста, используйте формат <code>+380XXXXXXXXX</code> или нажмите кнопку.",
                 reply_markup=ReplyKeyboardMarkup(
                     keyboard=[[KeyboardButton(text="📱 Отправить мой номер телефона", request_contact=True)]],
                     resize_keyboard=True,
                     one_time_keyboard=True
                 ),
-                parse_mode=ParseMode.MARKDOWN
+                parse_mode=ParseMode.HTML
             )
-            return  # Остаемся в текущем состоянии, ждем корректный ввод
+            return  # Выход из хэндлера, чтобы не обновлять FSM-контекст
 
     if contact_phone:
+        # Если телефон получен, обновляем состояние
         await state.update_data(contact_phone=contact_phone)
 
-        # Отправляем сообщение для подтверждения номера, но без Reply-клавиатуры
-        # ReplyKeyboardRemove() уже отправили выше, если был ручной ввод.
-        # Если был contact-button, то она сама исчезнет.
-        await message.answer(
-            f"Твой контактный телефон: *{contact_phone}*\n\nВсё верно? Подтверди, чтобы перейти к следующему шагу, или отмени заказ.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-        # Затем, в ОТДЕЛЬНОМ сообщении, предлагаем подтверждение с Inline-кнопками
-        next_field_config = ORDER_FIELD_MAP["contact_phone"]
+        # Переходим к следующему шагу - запросу примечаний
+        next_field_config = ORDER_FIELD_MAP.get("contact_phone", {})
         next_field_key = next_field_config.get("next_field")
 
+        # Получаем данные из FSM-контекста
+        user_data = await state.get_data()
+
+        # Формируем сообщение для подтверждения
+        review_message_text = (
+            f"<b>Проверь свои данные:</b>\n\n"
+            f"<b>Заказ:</b> {html.escape(user_data.get('order_text', ''))}\n"
+            f"<b>Имя:</b> {html.escape(user_data.get('full_name', ''))}\n"
+            f"<b>Адрес:</b> {html.escape(user_data.get('delivery_address', ''))}\n"
+            f"<b>Оплата:</b> {html.escape(user_data.get('payment_method', ''))}\n"
+            f"<b>Телефон:</b> {html.escape(contact_phone)}\n\n"
+            f"Всё верно? Подтверди, чтобы перейти к следующему шагу, или нажми 'Отмена'."
+        )
+
+        # Создаем Inline-клавиатуру
         keyboard = InlineKeyboardBuilder()
         keyboard.button(text="Подтвердить ✅", callback_data=f"confirm_input:{next_field_key}")
         keyboard.button(text="Отменить ❌", callback_data="cancel_order")
         keyboard.adjust(2)
 
-        # Редактируем предыдущее сообщение для добавления инлайн-клавиатуры
-        # Если было сообщение с номером, то редактируем его
-        # Если это первый ввод, то отправляем новое сообщение
-        try:
-            await message.edit_reply_markup(reply_markup=keyboard.as_markup())
-        except Exception as e:
-            logger.warning(f"Не удалось отредактировать ReplyMarkup для подтверждения телефона: {e}")
-            await message.answer("Для продолжения нажмите подтвердить:", reply_markup=keyboard.as_markup(),
-                                 parse_mode=ParseMode.MARKDOWN)
+        # Отправляем НОВОЕ сообщение с Inline-клавиатурой
+        await message.answer(
+            text=review_message_text,
+            reply_markup=keyboard.as_markup(),
+            parse_mode=ParseMode.HTML
+        )
 
-    # else: Этот блок теоретически не должен быть достигнут, так как `return` срабатывает выше при невалидном телефоне.
+        # Переводим пользователя в следующее состояние
+        await state.set_state(getattr(OrderStates, ORDER_FIELD_MAP.get(next_field_key, {}).get("state_name")))
 
 
 @router.callback_query(F.data.startswith("set_payment_method:"))
@@ -337,9 +354,9 @@ async def set_payment_method(callback: CallbackQuery, state: FSMContext):
 
     await callback.message.delete()  # Удаляем сообщение с выбором метода оплаты
     await callback.message.answer(
-        f"Ты выбрал способ оплаты: *{payment_method}*.\n\n" + contact_phone_config["prompt"],
+        f"Ты выбрал способ оплаты: <b>{html.escape(payment_method)}</b>.\n\n" + contact_phone_config["prompt"],
         reply_markup=reply_keyboard_for_phone,
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=ParseMode.HTML
     )
     await state.set_state(getattr(OrderStates, contact_phone_config["state_name"]))
     await callback.answer()
@@ -353,7 +370,6 @@ async def cancel_order(callback: CallbackQuery, state: FSMContext):
     """
     logger.info(f"Пользователь {callback.from_user.id} отменил заказ.")
     # Отправляем сообщение об отмене и пытаемся убрать Reply-клавиатуру, если она была активна
-    await callback.message.answer("Заказ отменен.", reply_markup=ReplyKeyboardRemove())
     await state.clear()
     await _display_user_main_menu(callback, state)
     await callback.answer()
@@ -372,12 +388,15 @@ async def _show_order_summary(update_object: Union[Message, CallbackQuery], stat
         display_name = DISPLAY_FIELD_NAMES.get(key, key.replace('_', ' '))
         value = user_data.get(key)
 
-        if value:
-            order_summary_parts.append(f"*{display_name.capitalize()}*: {value}")
-        elif key == 'delivery_notes':
-            order_summary_parts.append(f"*{display_name.capitalize()}*: Нет")
+        # Экранируем пользовательские данные, чтобы они не ломали разметку
+        escaped_value = html.escape(str(value)) if value is not None else None
 
-    order_summary = "**Окончательная информация о заказе:**\n\n" + "\n".join(
+        if escaped_value:
+            order_summary_parts.append(f"<b>{display_name.capitalize()}</b>: {escaped_value}")
+        elif key == 'delivery_notes':
+            order_summary_parts.append(f"<b>{display_name.capitalize()}</b>: Нет")
+
+    order_summary = "<b>Окончательная информация о заказе:</b>\n\n" + "\n".join(
         order_summary_parts) + "\n\nВсё верно? Подтверди заказ или отмени его."
 
     keyboard = InlineKeyboardBuilder()
@@ -391,13 +410,13 @@ async def _show_order_summary(update_object: Union[Message, CallbackQuery], stat
         await update_object.answer(
             order_summary,
             reply_markup=reply_markup,
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.HTML
         )
     elif isinstance(update_object, CallbackQuery):
         await update_object.message.edit_text(
             order_summary,
             reply_markup=reply_markup,
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.HTML
         )
         await update_object.answer()  # Отвечаем на callback
 
@@ -426,8 +445,8 @@ async def final_confirm_order(callback: CallbackQuery, state: FSMContext):
     )
 
     await callback.message.edit_text(
-        f"✅ Твой заказ №*{new_order.id}* успешно оформлен! Мы свяжемся с тобой в ближайшее время.",
-        parse_mode=ParseMode.MARKDOWN
+        f"✅ Твой заказ №<b>{new_order.id}</b> успешно оформлен! Мы свяжемся с тобой в ближайшее время.",
+        parse_mode=ParseMode.HTML
     )
     await state.clear()
     await callback.answer()
