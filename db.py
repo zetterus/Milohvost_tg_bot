@@ -8,8 +8,10 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, AsyncEngin
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.dialects.sqlite.aiosqlite import AsyncAdapt_aiosqlite_connection
 
+from aiogram.fsm.storage.base import BaseStorage, StorageKey
+
 from config import DATABASE_NAME, LOGGING_LEVEL, ACTIVE_ORDER_STATUSES
-from models import Base, Order, HelpMessage
+from models import Base, Order, HelpMessage, User  # Импортируем User
 
 # Настройка логирования
 logging.basicConfig(level=LOGGING_LEVEL)
@@ -52,7 +54,8 @@ def _register_sqlite_functions_and_pragmas(dbapi_connection, _connection_record)
         except Exception as e:
             logger.error(f"Ошибка при установке прагм SQLite: {e}")
     else:
-        logger.error(f"Слушатель событий получил неожиданный тип DBAPI-соединения: {type(dbapi_connection)}. Ожидается AsyncAdapt_aiosqlite_connection.")
+        logger.error(
+            f"Слушатель событий получил неожиданный тип DBAPI-соединения: {type(dbapi_connection)}. Ожидается AsyncAdapt_aiosqlite_connection.")
 
 
 # Асинхронная фабрика сессий
@@ -88,11 +91,128 @@ async def create_tables_async() -> None:
     Создает таблицы базы данных асинхронно, если они еще не существуют.
     """
     async with engine.begin() as conn:
-        # run_sync используется для выполнения синхронных операций (как Base.metadata.create_all)
-        # внутри асинхронного контекста.
         await conn.run_sync(Base.metadata.create_all)
     logger.info(
         f"База данных '{DATABASE_NAME}' и таблицы успешно созданы/обновлены с использованием SQLAlchemy (асинхронно).")
+
+
+# --- НОВЫЕ ФУНКЦИИ УПРАВЛЕНИЯ ПОЛЬЗОВАТЕЛЯМИ ---
+
+async def get_or_create_user(
+    user_id: int,
+    username: Optional[str] = None,
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
+    storage_key: Optional[StorageKey] = None,
+    storage_obj: Optional['BaseStorage'] = None
+    ) -> User:
+    """
+    Получает пользователя из базы данных по user_id.
+    Если пользователь не найден, создает новую запись с данными из Telegram
+    и языком по умолчанию 'uk'.
+    Обновляет last_activity_at при каждом вызове.
+    Также кэширует язык пользователя в Storage, если предоставлен storage_obj.
+    """
+    async with get_db_session() as db:
+        user = await db.scalar(select(User).where(User.user_id == user_id))
+
+        if user is None:
+            new_user = User(
+                user_id=user_id,
+                username=username,
+                first_name=first_name,
+                last_name=last_name,
+                language_code='uk',
+                notifications_enabled=True,
+            )
+            db.add(new_user)
+            await db.commit()
+            await db.refresh(new_user)
+            user = new_user
+            logger.info(f"Новый пользователь ID {user_id} добавлен в БД.")
+        else:
+            await db.commit()
+            await db.refresh(user)
+            logger.debug(f"Пользователь ID {user_id} получен из БД (язык: {user.language_code}). Активность обновлена.")
+
+        # --- ОБНОВЛЕНИЕ КЭША В STORAGE ---
+        if storage_obj and storage_key:
+            user_storage_data = await storage_obj.get_data(
+                key=storage_key
+            )
+
+            if user_storage_data.get('lang') != user.language_code:
+                user_storage_data['lang'] = user.language_code
+                await storage_obj.set_data(
+                    key=storage_key, data=user_storage_data
+                )
+                logger.debug(f"Язык пользователя {user_id} кэширован в Storage: {user.language_code}")
+        # --- КОНЕЦ ОБНОВЛЕНИЯ КЭША ---
+
+        return user
+
+
+async def get_user_language_code(user_id: int, storage_key: Optional[StorageKey] = None,
+                                 storage_obj: Optional['BaseStorage'] = None) -> str:
+    """
+    Получает код языка для пользователя. Сначала пытается получить из Storage,
+    затем из базы данных. Если пользователь не найден, возвращает 'uk' по умолчанию.
+    """
+    # Сначала пробуем получить из кэша (Storage)
+    if storage_obj and storage_key:
+        user_storage_data = await storage_obj.get_data(
+            key=storage_key
+        )
+        if 'lang' in user_storage_data:
+            logger.debug(f"Язык для пользователя {user_id} получен из Storage: {user_storage_data['lang']}")
+            return user_storage_data['lang']
+
+    # Если в кэше нет или storage_obj не предоставлен, обращаемся к БД
+    async with get_db_session() as db:
+        user_lang = await db.scalar(select(User.language_code).where(User.user_id == user_id))
+        if user_lang:
+            logger.debug(f"Язык для пользователя {user_id} получен из БД: {user_lang}")
+            if storage_obj and storage_key:
+                user_storage_data = await storage_obj.get_data(
+                    key=storage_key  # <-- ИСПРАВЛЕНО
+                )
+                user_storage_data['lang'] = user_lang
+                await storage_obj.set_data(
+                    key=storage_key, data=user_storage_data  # <-- ИСПРАВЛЕНО
+                )
+            return user_lang
+
+        logger.warning(f"Язык для пользователя ID {user_id} не найден в БД и кэше, возвращается 'uk' по умолчанию.")
+        return 'uk'
+
+
+async def update_user_language(user_id: int, new_language_code: str, storage_key: Optional[StorageKey] = None,
+                               storage_obj: Optional['BaseStorage'] = None) -> Optional[User]:
+    """
+    Обновляет предпочитаемый язык пользователя в базе данных и в Storage.
+    """
+    async with get_db_session() as db:
+        user = await db.scalar(select(User).where(User.user_id == user_id))
+        if user:
+            user.language_code = new_language_code
+            await db.commit()
+            await db.refresh(user)
+            logger.info(f"Язык пользователя ID {user_id} обновлен на '{new_language_code}'.")
+
+            # Обновляем кэш в Storage
+            if storage_obj and storage_key:
+                user_storage_data = await storage_obj.get_data(
+                    key=storage_key  # <-- ИСПРАВЛЕНО
+                )
+                user_storage_data['lang'] = new_language_code
+                await storage_obj.set_data(
+                    key=storage_key, data=user_storage_data  # <-- ИСПРАВЛЕНО
+                )
+                logger.debug(f"Язык пользователя {user_id} обновлен в Storage: {new_language_code}")
+
+            return user
+        logger.warning(f"Попытка обновить язык несуществующего пользователя ID {user_id}.")
+        return None
 
 
 # --- ФУНКЦИИ УПРАВЛЕНИЯ ЗАКАЗАМИ ---

@@ -230,8 +230,8 @@ async def admin_process_new_order_text(message: Message, state: FSMContext, bot:
     await state.clear()
 
     if updated_order:
-        # Отправляем подтверждение в чат админа
-        await message.answer(f"Текст заказа №{order_id} успешно обновлен!", parse_mode=ParseMode.HTML)
+        # # Отправляем подтверждение в чат админа
+        # await message.answer(f"Текст заказа №{order_id} успешно обновлен!", parse_mode=ParseMode.HTML)
 
         # Редактируем исходное сообщение с деталями заказа
         order_details_text, keyboard_markup = await _build_order_details_and_keyboard(order_id, state)

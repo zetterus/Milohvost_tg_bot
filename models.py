@@ -9,6 +9,44 @@ from sqlalchemy.sql import func
 Base = declarative_base()
 
 
+class User(Base):
+    """
+    Модель для хранения информации о пользователях бота и их настроек.
+
+    Атрибуты:
+        id (int): Уникальный идентификатор записи в таблице (первичный ключ, автоинкремент).
+        user_id (int): Telegram ID пользователя (уникальный, не nullable).
+        username (str, optional): Username пользователя Telegram.
+        first_name (str, optional): Имя пользователя Telegram.
+        last_name (str, optional): Фамилия пользователя Telegram.
+        user_provided_full_name (str, optional): Полное имя (ФИО), введенное пользователем при оформлении заказа.
+        user_provided_phone_number (str, optional): Контактный номер телефона, введенный пользователем.
+        language_code (str): Выбранный язык локализации ('uk', 'ru', 'en'). По умолчанию 'uk'.
+        notifications_enabled (bool): Флаг, указывающий, хочет ли пользователь получать уведомления. По умолчанию True.
+        created_at (datetime): Дата и время первого взаимодействия пользователя с ботом.
+        updated_at (datetime): Дата и время последнего обновления информации о пользователе.
+    """
+    __tablename__ = 'users'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, unique=True,
+                                         index=True)  # Telegram User ID, уникальный и с индексом
+    username: Mapped[Optional[str]] = mapped_column(String)
+    first_name: Mapped[Optional[str]] = mapped_column(String)
+    last_name: Mapped[Optional[str]] = mapped_column(String)
+    user_provided_full_name: Mapped[Optional[str]] = mapped_column(String)  # ФИО из заказа
+    phone_number: Mapped[Optional[str]] = mapped_column(String)  # Телефон из заказа
+    language_code: Mapped[str] = mapped_column(String(5), default='uk',
+                                               nullable=False)  # 'uk', 'ru', 'en', ограничение длины
+    notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
+    last_activity_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
+
+    def __repr__(self) -> str:
+        """Представление объекта User для отладки."""
+        return f"<User(id={self.id}, user_id={self.user_id}, username='{self.username}', lang='{self.language_code}')>"
+
+
 class Order(Base):
     """
     Модель для хранения информации о заказах пользователя.

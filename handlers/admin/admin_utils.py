@@ -84,7 +84,6 @@ async def _display_orders_paginated(
     total_pages = math.ceil(total_orders / ORDERS_PER_PAGE) if total_orders > 0 else 1
 
     # --- Формирование текста заголовка ---
-    # Заменяем hbold на HTML-тег <b>
     if query_text:
         header_text = (
             f"<b>Результаты поиска по запросу '{query_text}' (Страница {current_page}/{total_pages}, всего: {total_orders}):</b>"

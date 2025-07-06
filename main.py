@@ -4,6 +4,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
+from aiogram.fsm.storage.memory import MemoryStorage
 
 from config import BOT_TOKEN, LOGGING_LEVEL
 from db import create_tables_async  # Импортируем функцию для создания таблиц
@@ -32,12 +33,14 @@ async def main():
         # Завершаем программу, если БД не инициализирована
         return
 
+    storage = MemoryStorage()
+
     # Инициализируем бота с токеном и дефолтными свойствами
     # parse_mode=ParseMode.HTML устанавливается по умолчанию для всех сообщений
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
     # Инициализируем диспетчер для обработки входящих обновлений
-    dp = Dispatcher()
+    dp = Dispatcher(storage=storage) # Привязываем хранилище к диспетчеру
 
     # Регистрируем роутеры, которые содержат все хэндлеры
     dp.include_router(user_router)
