@@ -5,13 +5,13 @@ from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.middleware import FSMContextMiddleware # <-- НОВЫЙ ИМПОРТ
 
 from config import BOT_TOKEN, LOGGING_LEVEL
-from db import create_tables_async  # Импортируем функцию для создания таблиц
-from handlers import user_router, admin_router  # Импортируем роутеры
+from db import create_tables_async
+from handlers import user_router, admin_router
 
 # Настройка логирования
-# Устанавливаем базовый уровень логирования и формат
 logging.basicConfig(level=LOGGING_LEVEL, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,7 @@ async def main():
         # Завершаем программу, если БД не инициализирована
         return
 
+    # Инициализируем хранилище FSM
     storage = MemoryStorage()
 
     # Инициализируем бота с токеном и дефолтными свойствами
@@ -40,7 +41,14 @@ async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
     # Инициализируем диспетчер для обработки входящих обновлений
-    dp = Dispatcher(storage=storage) # Привязываем хранилище к диспетчеру
+    # Передача storage в конструктор автоматически добавляет FSMContextMiddleware
+    dp = Dispatcher(storage=storage)
+
+    # ЯВНОЕ ДОБАВЛЕНИЕ FSMContextMiddleware
+    # Это может быть избыточным, так как передача storage в Dispatcher должна делать это автоматически,
+    # но иногда помогает решить проблемы с инъекцией аргументов.
+    # dp.message.middleware(FSMContextMiddleware())
+    # dp.callback_query.middleware(FSMContextMiddleware())
 
     # Регистрируем роутеры, которые содержат все хэндлеры
     dp.include_router(user_router)

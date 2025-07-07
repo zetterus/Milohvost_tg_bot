@@ -1,38 +1,62 @@
 import logging
 import math
 import urllib.parse
-from typing import Union  # Импортируем Union для type hinting
+from typing import Union
 
-from aiogram import Router
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
-from aiogram.enums import ParseMode  # Убедимся, что ParseMode импортирован
+from aiogram.enums import ParseMode
+from aiogram.fsm.storage.base import BaseStorage, StorageKey
 
-from config import ORDER_STATUS_MAP, ORDERS_PER_PAGE, MAX_PREVIEW_TEXT_LENGTH
+from config import ORDERS_PER_PAGE, MAX_PREVIEW_TEXT_LENGTH  # <-- ORDER_STATUS_KEYS УДАЛЕН
 from db import get_all_orders, search_orders
+from localization import get_localized_message
 
 logger = logging.getLogger(__name__)
-router = Router()
 
 
-async def _display_admin_main_menu(update_object: Union[Message, CallbackQuery], state: FSMContext):
+# Функция для создания клавиатуры главного меню админ-панели
+def _get_admin_main_menu_keyboard(lang: str) -> InlineKeyboardBuilder:
+    """
+    Создает инлайн-клавиатуру для главного меню админ-панели, используя локализованные тексты.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text=get_localized_message("admin_button_all_orders", lang), callback_data="admin_all_orders_start")
+    builder.button(text=get_localized_message("admin_button_find_orders", lang), callback_data="admin_find_orders")
+    builder.button(text=get_localized_message("admin_button_manage_help", lang),
+                   callback_data="admin_manage_help_messages")
+    builder.adjust(1)
+    return builder
+
+
+async def _display_admin_main_menu(
+        update_object: Union[Message, CallbackQuery],
+        state: FSMContext,
+        storage: BaseStorage,
+        storage_key: StorageKey
+):
     """
     Отображает главное меню админ-панели.
     Принимает Message или CallbackQuery и соответствующим образом отправляет/редактирует сообщение.
     Всегда сбрасывает FSM-состояние.
+    Использует локализацию, получая язык из Storage.
     """
+    user_id = update_object.from_user.id
+    logger.info(f"Админ {user_id} переходит в главное меню админ-панели.")
+
     await state.clear()
 
-    keyboard = InlineKeyboardBuilder()
-    keyboard.button(text="Просмотреть все заказы 📋", callback_data="admin_all_orders_start")
-    keyboard.button(text="Найти заказы 🔍", callback_data="admin_find_orders")
-    keyboard.button(text="Управление помощью 💬", callback_data="admin_manage_help_messages")
-    keyboard.adjust(1)
+    # Получаем язык пользователя из Storage
+    user_storage_data = await storage.get_data(key=storage_key)
+    lang = user_storage_data.get('lang', 'uk')  # По умолчанию 'uk'
 
-    # Заменяем hbold на HTML-тег <b>
-    text = "<b>Добро пожаловать в админ-панель! Выберите действие:</b>"
+    # Используем новую внутреннюю функцию для создания клавиатуры
+    keyboard = _get_admin_main_menu_keyboard(lang)
     reply_markup = keyboard.as_markup()
+
+    # Локализованный текст приветствия/меню
+    text = get_localized_message("admin_welcome_message", lang)
 
     if isinstance(update_object, Message):
         await update_object.answer(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
@@ -44,6 +68,8 @@ async def _display_admin_main_menu(update_object: Union[Message, CallbackQuery],
 async def _display_orders_paginated(
         update_object: Union[Message, CallbackQuery],
         state: FSMContext,
+        storage: BaseStorage,
+        storage_key: StorageKey,
         current_page: int,
         is_search: bool = False
 ):
@@ -53,9 +79,12 @@ async def _display_orders_paginated(
     Функция может отображать либо все заказы, либо результаты поиска,
     в зависимости от флага 'is_search'. Она динамически формирует текст
     сообщения и клавиатуру для навигации по страницам и просмотра деталей заказов.
+    Использует локализацию.
 
     :param update_object: Объект Message или CallbackQuery, инициировавший отображение.
     :param state: FSMContext для управления состоянием и данными (например, поисковым запросом).
+    :param storage: Объект Storage для доступа к персистентным данным пользователя.
+    :param storage_key: StorageKey для идентификации данных пользователя.
     :param current_page: Текущий номер отображаемой страницы.
     :param is_search: Булевый флаг, указывающий, является ли текущее отображение результатами поиска.
                       (True для поиска, False для всех заказов).
@@ -64,15 +93,19 @@ async def _display_orders_paginated(
     offset = (current_page - 1) * ORDERS_PER_PAGE
     query_text = None
 
+    # Получаем язык пользователя из Storage
+    user_storage_data = await storage.get_data(key=storage_key)
+    lang = user_storage_data.get('lang', 'uk')
+
     if is_search:
         data = await state.get_data()
         query_text = data.get("search_query")
         if not query_text:
             logger.error(
                 f"Админ {user_id}: Попытка пагинации поиска без search_query в FSM. Возврат в админ-панель.")
-            await update_object.answer("Ошибка: поисковый запрос не найден. Начните поиск заново.", show_alert=True)
-            # Убедимся, что передаем тот же объект, чтобы избежать ошибки edit_text
-            await _display_admin_main_menu(update_object, state)
+            error_message = get_localized_message("error_search_query_not_found", lang)
+            await update_object.answer(error_message, show_alert=True)
+            await _display_admin_main_menu(update_object, state, storage=storage, storage_key=storage_key)
             return
 
         orders, total_orders = await search_orders(search_query=query_text, offset=offset, limit=ORDERS_PER_PAGE)
@@ -85,23 +118,25 @@ async def _display_orders_paginated(
 
     # --- Формирование текста заголовка ---
     if query_text:
-        header_text = (
-            f"<b>Результаты поиска по запросу '{query_text}' (Страница {current_page}/{total_pages}, всего: {total_orders}):</b>"
-        )
+        header_text = get_localized_message(
+            "admin_search_results_title", lang
+        ).format(query_text=query_text, current_page=current_page, total_pages=total_pages, total_orders=total_orders)
     else:
-        header_text = (
-            f"<b>Список всех заказов (Страница {current_page}/{total_pages}, всего: {total_orders}):</b>"
-        )
+        header_text = get_localized_message(
+            "admin_orders_list_title", lang
+        ).format(current_page=current_page, total_pages=total_pages, total_orders=total_orders)
 
     orders_content_text = header_text + "\n\n"
 
     if not orders:
-        orders_content_text += "Заказов на этой странице нет."
+        orders_content_text += get_localized_message("no_orders_on_page", lang)
 
     # --- Кнопки для каждого заказа ---
     order_buttons_builder = InlineKeyboardBuilder()
     for order in orders:
-        display_status = ORDER_STATUS_MAP.get(order.status, order.status)
+        # Получаем локализованный статус заказа
+        display_status = get_localized_message(f"order_status_{order.status}", lang)
+
         preview_text = order.order_text[:MAX_PREVIEW_TEXT_LENGTH]
         if len(order.order_text) > MAX_PREVIEW_TEXT_LENGTH:
             preview_text += "..."
@@ -116,24 +151,22 @@ async def _display_orders_paginated(
     # --- Кнопки пагинации ---
     pagination_builder = InlineKeyboardBuilder()
     page_base_prefix = "admin_search_page" if is_search else "admin_all_orders_page"
-    # Экранируем поисковый запрос только если он есть, иначе пустая строка
     encoded_query_text = urllib.parse.quote_plus(query_text) if query_text else ""
-    # Добавляем двоеточие перед запросом только если запрос не пустой
     query_param_suffix = f":{encoded_query_text}" if encoded_query_text else ""
 
     if current_page > 1:
         pagination_builder.button(text="⏮️", callback_data=f"{page_base_prefix}:1{query_param_suffix}")
         if current_page > 5:
-            pagination_builder.button(text="◀️5",
+            pagination_builder.button(text=get_localized_message("pagination_prev_5", lang),
                                       callback_data=f"{page_base_prefix}:{max(1, current_page - 5)}{query_param_suffix}")
-        pagination_builder.button(text="◀️",
+        pagination_builder.button(text=get_localized_message("pagination_prev", lang),
                                   callback_data=f"{page_base_prefix}:{current_page - 1}{query_param_suffix}")
 
     if current_page < total_pages:
-        pagination_builder.button(text="▶️",
+        pagination_builder.button(text=get_localized_message("pagination_next", lang),
                                   callback_data=f"{page_base_prefix}:{current_page + 1}{query_param_suffix}")
         if current_page < total_pages - 4:
-            pagination_builder.button(text="▶️5",
+            pagination_builder.button(text=get_localized_message("pagination_next_5", lang),
                                       callback_data=f"{page_base_prefix}:{min(total_pages, current_page + 5)}{query_param_suffix}")
         pagination_builder.button(text="⏭️",
                                   callback_data=f"{page_base_prefix}:{total_pages}{query_param_suffix}")
@@ -146,7 +179,7 @@ async def _display_orders_paginated(
         final_keyboard.row(*pagination_builder.buttons)
 
     final_keyboard.row(InlineKeyboardButton(
-        text="🔙 В админ-панель",
+        text=get_localized_message("button_back_to_admin_panel", lang),
         callback_data="admin_panel_back"
     ))
 
