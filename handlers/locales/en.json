@@ -46,6 +46,8 @@
   "order_details_date": "  <i>Date:</i> {date}",
   "order_divider": "---",
   "no_orders_yet": "You don't have any orders yet.",
+  "order_details_order_id": "Order №{order_id}",
+  "order_details_status_prefix": "Status",
 
   "order_status_new": "New 📝",
   "order_status_stockcheck": "Checking stock with supplier 🔍",

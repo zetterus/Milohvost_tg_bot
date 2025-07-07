@@ -46,6 +46,8 @@
   "order_details_date": "  <i>Дата:</i> {date}",
   "order_divider": "---",
   "no_orders_yet": "У тебя пока нет заказов.",
+  "order_details_order_id": "Заказ №{order_id}",
+  "order_details_status_prefix": "Статус",
 
   "order_status_new": "Новый заказ 📝",
   "order_status_stockcheck": "Проверяем наличие у поставщика 🔍",
