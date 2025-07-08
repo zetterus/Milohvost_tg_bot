@@ -8,9 +8,9 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, AsyncEngin
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.dialects.sqlite.aiosqlite import AsyncAdapt_aiosqlite_connection
 
-from aiogram.fsm.storage.base import BaseStorage, StorageKey
+# from aiogram.fsm.storage.base import BaseStorage, StorageKey # <-- УДАЛЕНО: Больше не нужны здесь
 
-from config import DATABASE_NAME, LOGGING_LEVEL, ACTIVE_ORDER_STATUS_KEYS # <-- ИСПРАВЛЕНО: ACTIVE_ORDER_STATUSES на ACTIVE_ORDER_STATUS_KEYS
+from config import DATABASE_NAME, LOGGING_LEVEL, ACTIVE_ORDER_STATUS_KEYS
 from models import Base, Order, HelpMessage, User
 
 # Настройка логирования
@@ -102,16 +102,13 @@ async def get_or_create_user(
     user_id: int,
     username: Optional[str] = None,
     first_name: Optional[str] = None,
-    last_name: Optional[str] = None,
-    storage_key: Optional[StorageKey] = None,
-    storage_obj: Optional['BaseStorage'] = None
+    last_name: Optional[str] = None
     ) -> User:
     """
     Получает пользователя из базы данных по user_id.
     Если пользователь не найден, создает новую запись с данными из Telegram
     и языком по умолчанию 'uk'.
     Обновляет last_activity_at при каждом вызове.
-    Также кэширует язык пользователя в Storage, если предоставлен storage_obj.
     """
     async with get_db_session() as db:
         user = await db.scalar(select(User).where(User.user_id == user_id))
@@ -131,65 +128,32 @@ async def get_or_create_user(
             user = new_user
             logger.info(f"Новый пользователь ID {user_id} добавлен в БД.")
         else:
+            user.last_activity_at = datetime.now() # Обновляем last_activity_at при каждом получении/создании пользователя
             await db.commit()
             await db.refresh(user)
             logger.debug(f"Пользователь ID {user_id} получен из БД (язык: {user.language_code}). Активность обновлена.")
 
-        # --- ОБНОВЛЕНИЕ КЭША В STORAGE ---
-        if storage_obj and storage_key:
-            user_storage_data = await storage_obj.get_data(
-                key=storage_key
-            )
-
-            if user_storage_data.get('lang') != user.language_code:
-                user_storage_data['lang'] = user.language_code
-                await storage_obj.set_data(
-                    key=storage_key, data=user_storage_data
-                )
-                logger.debug(f"Язык пользователя {user_id} кэширован в Storage: {user.language_code}")
-        # --- КОНЕЦ ОБНОВЛЕНИЯ КЭША ---
-
         return user
 
 
-async def get_user_language_code(user_id: int, storage_key: Optional[StorageKey] = None,
-                                 storage_obj: Optional['BaseStorage'] = None) -> str:
+async def get_user_language_code(user_id: int) -> str:
     """
-    Получает код языка для пользователя. Сначала пытается получить из Storage,
-    затем из базы данных. Если пользователь не найден, возвращает 'uk' по умолчанию.
+    Получает код языка для пользователя напрямую из базы данных.
+    Если пользователь не найден, возвращает 'uk' по умолчанию.
     """
-    # Сначала пробуем получить из кэша (Storage)
-    if storage_obj and storage_key:
-        user_storage_data = await storage_obj.get_data(
-            key=storage_key
-        )
-        if 'lang' in user_storage_data:
-            logger.debug(f"Язык для пользователя {user_id} получен из Storage: {user_storage_data['lang']}")
-            return user_storage_data['lang']
-
-    # Если в кэше нет или storage_obj не предоставлен, обращаемся к БД
     async with get_db_session() as db:
         user_lang = await db.scalar(select(User.language_code).where(User.user_id == user_id))
         if user_lang:
             logger.debug(f"Язык для пользователя {user_id} получен из БД: {user_lang}")
-            if storage_obj and storage_key:
-                user_storage_data = await storage_obj.get_data(
-                    key=storage_key
-                )
-                user_storage_data['lang'] = user_lang
-                await storage_obj.set_data(
-                    key=storage_key, data=user_storage_data
-                )
             return user_lang
 
-        logger.warning(f"Язык для пользователя ID {user_id} не найден в БД и кэше, возвращается 'uk' по умолчанию.")
+        logger.warning(f"Язык для пользователя ID {user_id} не найден в БД, возвращается 'uk' по умолчанию.")
         return 'uk'
 
 
-async def update_user_language(user_id: int, new_language_code: str, storage_key: Optional[StorageKey] = None,
-                               storage_obj: Optional['BaseStorage'] = None) -> Optional[User]:
+async def update_user_language(user_id: int, new_language_code: str) -> Optional[User]:
     """
-    Обновляет предпочитаемый язык пользователя в базе данных и в Storage.
+    Обновляет предпочитаемый язык пользователя в базе данных.
     """
     async with get_db_session() as db:
         user = await db.scalar(select(User).where(User.user_id == user_id))
@@ -198,18 +162,6 @@ async def update_user_language(user_id: int, new_language_code: str, storage_key
             await db.commit()
             await db.refresh(user)
             logger.info(f"Язык пользователя ID {user_id} обновлен на '{new_language_code}'.")
-
-            # Обновляем кэш в Storage
-            if storage_obj and storage_key:
-                user_storage_data = await storage_obj.get_data(
-                    key=storage_key
-                )
-                user_storage_data['lang'] = new_language_code
-                await storage_obj.set_data(
-                    key=storage_key, data=user_storage_data
-                )
-                logger.debug(f"Язык пользователя {user_id} обновлен в Storage: {new_language_code}")
-
             return user
         logger.warning(f"Попытка обновить язык несуществующего пользователя ID {user_id}.")
         return None
@@ -290,7 +242,7 @@ async def get_user_orders_paginated(user_id: int, offset: int, limit: int) -> Li
             select(Order)
             .where(
                 Order.user_id == user_id,
-                Order.status.in_(ACTIVE_ORDER_STATUS_KEYS) # <-- ИСПРАВЛЕНО
+                Order.status.in_(ACTIVE_ORDER_STATUS_KEYS)
             )
             .order_by(Order.created_at.desc())
             .offset(offset)
@@ -309,7 +261,7 @@ async def count_user_orders(user_id: int) -> int:
             select(func.count(Order.id))
             .where(
                 Order.user_id == user_id,
-                Order.status.in_(ACTIVE_ORDER_STATUS_KEYS) # <-- ИСПРАВЛЕНО
+                Order.status.in_(ACTIVE_ORDER_STATUS_KEYS)
             )
         )
         total_orders = (await db.scalar(stmt))
@@ -530,7 +482,7 @@ async def delete_help_message(message_id: int) -> bool:
             await db.commit()
             logger.info(f"Сообщение помощи ID {message_id} успешно удалено из БД.")
             return True
-        logger.warning(f"Попытка удалить несуществующее сообщение помощи ID {message_id}.")
+        logger.warning(f"Попытка удалить несуществующий заказ ID {message_id}.")
         return False
 
 

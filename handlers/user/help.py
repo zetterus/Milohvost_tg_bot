@@ -4,10 +4,10 @@ from aiogram import Router, F
 from aiogram.types import CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
 from aiogram.enums import ParseMode
-from aiogram.fsm.storage.base import BaseStorage, StorageKey # <-- НОВЫЙ ИМПОРТ
+# from aiogram.fsm.storage.base import BaseStorage, StorageKey # <-- УДАЛЕНО: Больше не нужны здесь
 
 from db import get_active_help_message_from_db
-from localization import get_localized_message # <-- НОВЫЙ ИМПОРТ
+from localization import get_localized_message
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -16,8 +16,7 @@ router = Router()
 @router.callback_query(F.data == "get_help")
 async def get_help_callback(
     callback: CallbackQuery,
-    storage: BaseStorage, # <-- ДОБАВЛЕНО: получаем объект хранилища
-    storage_key: StorageKey # <-- ДОБАВЛЕНО: получаем StorageKey
+    lang: str # <-- ОСТАВЛЕНО
 ):
     """
     Обрабатывает нажатие инлайн-кнопки "Помощь".
@@ -26,9 +25,8 @@ async def get_help_callback(
     user_id = callback.from_user.id
     logger.info(f"Пользователь {user_id} запросил помощь.")
 
-    # Получаем язык пользователя из Storage
-    user_storage_data = await storage.get_data(key=storage_key)
-    lang = user_storage_data.get('lang', 'uk') # По умолчанию 'uk'
+    # lang теперь инжектируется напрямую из LocalizationMiddleware,
+    # нет необходимости получать его из storage.
 
     active_message = await get_active_help_message_from_db()
 
