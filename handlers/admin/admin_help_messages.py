@@ -107,7 +107,7 @@ async def _display_all_help_messages(
             )
         keyboard.adjust(1)
     else:
-        messages_list_text += get_localized_message("admin_help_no_messages_found", lang)
+        messages_list_text += get_localized_message("admin_help_no_saved_messages", lang)
 
     keyboard.row(InlineKeyboardButton(text=get_localized_message("button_back_to_admin_panel", lang),
                                       callback_data="admin_manage_help_messages"))
