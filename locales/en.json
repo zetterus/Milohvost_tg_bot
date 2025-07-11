@@ -155,7 +155,7 @@
   "admin_confirm_delete_help_message_prompt": "Are you sure you want to delete help message ID: <code>{message_id}</code>?",
   "admin_help_deleted_success": "🗑️ Message ID: {message_id} successfully deleted.",
   "admin_help_delete_failed": "❌ Failed to delete message. It might be missing.",
-  "button_my_language": "My language 🌐",
+  "button_my_language": "Language 🌐",
   "choose_language_prompt": "Please choose a language:",
   "your_current_language": "Your current language: {current_lang}",
   "language_changed_success_alert": "Language changed to {new_lang}!",

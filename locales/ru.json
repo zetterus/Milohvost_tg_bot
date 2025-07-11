@@ -155,7 +155,7 @@
   "admin_confirm_delete_help_message_prompt": "Вы уверены, что хотите удалить сообщение помощи ID: <code>{message_id}</code>?",
   "admin_help_deleted_success": "🗑️ Сообщение ID: {message_id} успешно удалено.",
   "admin_help_delete_failed": "❌ Не удалось удалить сообщение. Возможно, оно уже отсутствует.",
-  "button_my_language": "Мой язык 🌐",
+  "button_my_language": "Язык 🌐",
   "choose_language_prompt": "Пожалуйста, выберите язык:",
   "your_current_language": "Твой текущий язык: {current_lang}",
   "language_changed_success_alert": "Язык изменен на {new_lang}!",

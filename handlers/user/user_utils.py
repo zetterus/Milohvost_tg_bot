@@ -105,11 +105,12 @@ async def change_user_language(
     user_id = callback.from_user.id
     new_lang = callback.data.split('_')[2] # Извлекаем код нового языка из callback_data
 
-    # update_user_language теперь не требует storage_key и storage_obj
     updated_user = await update_user_language(user_id, new_lang)
 
     if updated_user:
-        await callback.answer(get_localized_message("language_changed_success_alert", updated_user.language_code), show_alert=True)
+        await callback.answer(get_localized_message("language_changed_success_alert", updated_user.language_code),
+                              show_alert=True)
+        await callback.message.delete()
     else:
         await callback.answer(get_localized_message("language_change_failed_alert", lang), show_alert=True)
-    await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.edit_reply_markup(reply_markup=None)
