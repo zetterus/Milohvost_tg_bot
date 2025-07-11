@@ -1,16 +1,13 @@
 import logging
 from typing import List, Optional, Tuple
 from contextlib import asynccontextmanager
-from datetime import datetime
 
-from sqlalchemy import text, select, func, or_, event
+from sqlalchemy import select, func, or_, event
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, AsyncEngine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.dialects.sqlite.aiosqlite import AsyncAdapt_aiosqlite_connection
 
-# from aiogram.fsm.storage.base import BaseStorage, StorageKey # <-- УДАЛЕНО: Больше не нужны здесь
-
-from config import DATABASE_NAME, LOGGING_LEVEL, ACTIVE_ORDER_STATUS_KEYS
+from config import DATABASE_NAME, LOGGING_LEVEL
 from models import Base, Order, HelpMessage, User
 
 # Настройка логирования
@@ -36,152 +33,143 @@ engine: AsyncEngine = create_async_engine(
     pool_pre_ping=True  # Проверяет соединение перед использованием из пула
 )
 
-
-@event.listens_for(engine.sync_engine, "connect")
-def _register_sqlite_functions_and_pragmas(dbapi_connection, _connection_record):
-    """
-    Слушатель, который получает объект адаптера DBAPI (AsyncAdapt_aiosqlite_connection),
-    использует его напрямую для регистрации пользовательских функций и установки прагм.
-    """
-    if isinstance(dbapi_connection, AsyncAdapt_aiosqlite_connection):
-        dbapi_connection.create_function("LOWER", 1, _sqlite_unicode_lower)
-        logger.debug("SQLite: Пользовательская функция LOWER (Unicode-aware) успешно зарегистрирована.")
-
-        try:
-            dbapi_connection.execute("PRAGMA journal_mode = WAL;")
-            dbapi_connection.execute("PRAGMA foreign_keys = ON;")
-            logger.debug("SQLite: Прагмы 'journal_mode=WAL' и 'foreign_keys=ON' успешно установлены.")
-        except Exception as e:
-            logger.error(f"Ошибка при установке прагм SQLite: {e}")
-    else:
-        logger.error(
-            f"Слушатель событий получил неожиданный тип DBAPI-соединения: {type(dbapi_connection)}. Ожидается AsyncAdapt_aiosqlite_connection.")
-
-
-# Асинхронная фабрика сессий
+# Создание асинхронной сессии
 AsyncSessionLocal = sessionmaker(
-    bind=engine,
+    expire_on_commit=False,
     class_=AsyncSession,
-    expire_on_commit=False,  # Объекты не истекают после коммита
-    autocommit=False,  # Отключение автокоммита
-    autoflush=False  # Отключение автофлаша
+    bind=engine
 )
 
 
+@event.listens_for(engine.sync_engine, "connect")
+def _set_sqlite_pragma(dbapi_connection, _connection_record):
+    """
+    Устанавливает PRAGMA для SQLite для поддержки внешних ключей и пользовательской функции LOWER.
+    """
+    if isinstance(dbapi_connection, AsyncAdapt_aiosqlite_connection):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        # Регистрируем пользовательскую функцию LOWER для SQLite
+        dbapi_connection.create_function("LOWER", 1, _sqlite_unicode_lower)
+        cursor.close()
+
+
 @asynccontextmanager
-async def get_db_session() -> AsyncSession:  # Уточнен тип возвращаемого значения
+async def get_db_session():
     """
-    Асинхронный генератор для получения сессии базы данных.
-    Используется как асинхронный контекстный менеджер.
-    Гарантирует закрытие сессии после использования.
+    Предоставляет асинхронную сессию базы данных.
+    Используется как контекстный менеджер (async with).
     """
-    db: AsyncSession = AsyncSessionLocal()
-    try:
-        yield db
-    except Exception as e:
-        await db.rollback()  # Откатываем транзакцию при ошибке
-        logger.error(f"Ошибка в сессии базы данных, выполнен откат: {e}")
-        raise  # Повторно выбрасываем исключение
-    finally:
-        await db.close()
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception as e:
+            logger.error(f"Ошибка транзакции базы данных: {e}")
+            await session.rollback()
+            raise
 
 
-async def create_tables_async() -> None:
+# Функция create_tables_async больше не нужна для создания таблиц,
+# так как это будет делать Alembic.
+# Если она используется для чего-то еще, оставьте ее, но удалите вызов create_all.
+async def create_tables_async():
     """
-    Создает таблицы базы данных асинхронно, если они еще не существуют.
+    Эта функция теперь может быть пустой или удалена,
+    так как создание таблиц будет управляться Alembic.
+    Если у вас есть другие инициализационные задачи, оставьте их здесь.
     """
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info(
-        f"База данных '{DATABASE_NAME}' и таблицы успешно созданы/обновлены с использованием SQLAlchemy (асинхронно).")
+    logger.info("Alembic управляет миграциями базы данных. create_tables_async() не выполняет создание таблиц.")
+    pass # Или удалите эту функцию, если она больше не нужна вовсе
 
 
-# --- НОВЫЕ ФУНКЦИИ УПРАВЛЕНИЯ ПОЛЬЗОВАТЕЛЯМИ ---
+# --- Функции для работы с пользователями ---
 
 async def get_or_create_user(
-    user_id: int,
-    username: Optional[str] = None,
-    first_name: Optional[str] = None,
-    last_name: Optional[str] = None
-    ) -> User:
+        user_id: int,
+        username: Optional[str] = None,
+        first_name: Optional[str] = None,
+        last_name: Optional[str] = None,
+) -> User:
     """
-    Получает пользователя из базы данных по user_id.
-    Если пользователь не найден, создает новую запись с данными из Telegram
-    и языком по умолчанию 'uk'.
-    Обновляет last_activity_at при каждом вызове.
+    Получает пользователя по user_id или создает нового, если он не существует.
+    Обновляет username, first_name, last_name и last_activity_at при каждом обращении.
     """
     async with get_db_session() as db:
-        user = await db.scalar(select(User).where(User.user_id == user_id))
+        stmt = select(User).where(User.user_id == user_id)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
 
-        if user is None:
-            new_user = User(
+        if user:
+            # Обновляем данные пользователя, если они изменились
+            user.username = username
+            user.first_name = first_name
+            user.last_name = last_name
+            user.last_activity_at = func.now() # Использование last_activity_at
+            logger.debug(f"Пользователь {user_id} обновлен в БД.")
+        else:
+            # Создаем нового пользователя
+            user = User(
                 user_id=user_id,
                 username=username,
                 first_name=first_name,
-                last_name=last_name,
-                language_code='uk',
-                notifications_enabled=True,
+                last_name=last_name
             )
-            db.add(new_user)
-            await db.commit()
-            await db.refresh(new_user)
-            user = new_user
-            logger.info(f"Новый пользователь ID {user_id} добавлен в БД.")
-        else:
-            user.last_activity_at = datetime.now() # Обновляем last_activity_at при каждом получении/создании пользователя
-            await db.commit()
-            await db.refresh(user)
-            logger.debug(f"Пользователь ID {user_id} получен из БД (язык: {user.language_code}). Активность обновлена.")
+            db.add(user)
+            logger.info(f"Новый пользователь {user_id} добавлен в БД.")
+
+        await db.flush()  # Убедимся, что user.id доступен, если это новый пользователь
 
         return user
 
 
 async def get_user_language_code(user_id: int) -> str:
     """
-    Получает код языка для пользователя напрямую из базы данных.
-    Если пользователь не найден, возвращает 'uk' по умолчанию.
+    Получает код языка пользователя из базы данных.
+    Возвращает 'uk' (украинский) по умолчанию, если пользователь не найден.
     """
     async with get_db_session() as db:
-        user_lang = await db.scalar(select(User.language_code).where(User.user_id == user_id))
-        if user_lang:
-            logger.debug(f"Язык для пользователя {user_id} получен из БД: {user_lang}")
-            return user_lang
-
-        logger.warning(f"Язык для пользователя ID {user_id} не найден в БД, возвращается 'uk' по умолчанию.")
-        return 'uk'
+        stmt = select(User.language_code).where(User.user_id == user_id)
+        result = await db.execute(stmt)
+        language_code = result.scalar_one_or_none()
+        if language_code:
+            return language_code
+        return 'uk'  # Язык по умолчанию
 
 
 async def update_user_language(user_id: int, new_language_code: str) -> Optional[User]:
     """
-    Обновляет предпочитаемый язык пользователя в базе данных.
+    Обновляет код языка для пользователя в базе данных.
+    Возвращает обновленный объект User или None, если пользователь не найден.
     """
     async with get_db_session() as db:
-        user = await db.scalar(select(User).where(User.user_id == user_id))
+        stmt = select(User).where(User.user_id == user_id)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
         if user:
             user.language_code = new_language_code
-            await db.commit()
-            await db.refresh(user)
-            logger.info(f"Язык пользователя ID {user_id} обновлен на '{new_language_code}'.")
+            user.last_activity_at = func.now() # Использование last_activity_at
+            logger.info(f"Язык пользователя {user_id} обновлен на '{new_language_code}'.")
             return user
-        logger.warning(f"Попытка обновить язык несуществующего пользователя ID {user_id}.")
+        logger.warning(f"Пользователь с ID {user_id} не найден для обновления языка.")
         return None
 
 
-# --- ФУНКЦИИ УПРАВЛЕНИЯ ЗАКАЗАМИ ---
+# --- Функции для работы с заказами ---
 
 async def add_new_order(
         user_id: int,
-        username: Optional[str],
+        username: str,
         order_text: str,
         full_name: Optional[str] = None,
         delivery_address: Optional[str] = None,
         payment_method: Optional[str] = None,
-        contact_phone: Optional[str] = None,
-        delivery_notes: Optional[str] = None
+        contact_phone: Optional[str] = None, # Изменено на contact_phone
+        delivery_notes: Optional[str] = None,
+        status: str = 'new'
 ) -> Order:
     """
     Добавляет новый заказ в базу данных.
-    Принимает отдельные параметры с данными заказа и возвращает объект Order.
     """
     async with get_db_session() as db:
         new_order = Order(
@@ -191,230 +179,185 @@ async def add_new_order(
             full_name=full_name,
             delivery_address=delivery_address,
             payment_method=payment_method,
-            contact_phone=contact_phone,
+            contact_phone=contact_phone, # Использование contact_phone
             delivery_notes=delivery_notes,
-            status='new'
+            status=status
         )
         db.add(new_order)
-        await db.commit()
-        await db.refresh(new_order)
-        logger.info(f"Заказ ID {new_order.id} успешно добавлен в БД пользователем {user_id}.")
+        await db.flush()  # Для получения ID нового заказа
+        logger.info(f"Новый заказ ID {new_order.id} добавлен от пользователя {user_id}.")
         return new_order
-
-
-async def get_all_orders(offset: int = 0, limit: Optional[int] = None) -> Tuple[List[Order], int]:
-    """
-    Получает все заказы из базы данных с пагинацией и общее количество.
-    Заказы сортируются по дате создания в убывающем порядке.
-
-    :param offset: Смещение для пагинации (количество пропускаемых записей).
-    :param limit: Максимальное количество заказов для возврата на одной странице.
-    :return: Кортеж: (список объектов Order, общее количество заказов).
-    """
-    async with get_db_session() as db:
-        # Получаем общее количество заказов
-        total_orders_query = select(func.count(Order.id))
-        total_orders = (await db.scalar(total_orders_query)) or 0
-
-        # Получаем заказы с учетом пагинации
-        orders_query = select(Order).order_by(Order.created_at.desc())
-        if limit is not None:
-            orders_query = orders_query.offset(offset).limit(limit)
-
-        result = await db.execute(orders_query)
-        orders = list(result.scalars().all())
-
-        return orders, total_orders
-
-
-async def get_user_orders_paginated(user_id: int, offset: int, limit: int) -> List[Order]:
-    """
-    Получает АКТИВНЫЕ заказы конкретного пользователя с пагинацией.
-    Заказы сортируются по дате создания в убывающем порядке.
-
-    :param user_id: ID пользователя.
-    :param offset: Смещение (количество пропускаемых записей).
-    :param limit: Максимальное количество записей для возврата (количество на странице).
-    :return: Список объектов Order.
-    """
-    async with get_db_session() as db:
-        stmt = (
-            select(Order)
-            .where(
-                Order.user_id == user_id,
-                Order.status.in_(ACTIVE_ORDER_STATUS_KEYS)
-            )
-            .order_by(Order.created_at.desc())
-            .offset(offset)
-            .limit(limit)
-        )
-        result = await db.execute(stmt)
-        return list(result.scalars().all())
-
-
-async def count_user_orders(user_id: int) -> int:
-    """
-    Считает общее количество АКТИВНЫХ заказов для конкретного пользователя.
-    """
-    async with get_db_session() as db:
-        stmt = (
-            select(func.count(Order.id))
-            .where(
-                Order.user_id == user_id,
-                Order.status.in_(ACTIVE_ORDER_STATUS_KEYS)
-            )
-        )
-        total_orders = (await db.scalar(stmt))
-        return total_orders if total_orders is not None else 0
 
 
 async def get_order_by_id(order_id: int) -> Optional[Order]:
     """
     Получает заказ по его ID.
-    :param order_id: ID заказа.
-    :return: Объект Order или None, если заказ не найден.
     """
     async with get_db_session() as db:
-        order = await db.get(Order, order_id)
-        return order
+        stmt = select(Order).where(Order.id == order_id)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
 
 
-async def update_order_status(order_id: int, new_status: str) -> Optional[Order]:
+async def update_order_status(order_id: int, new_status: str) -> bool:
     """
-    Обновляет статус заказа в базе данных.
-    :param order_id: ID заказа.
-    :param new_status: Новый статус для заказа.
-    :return: Обновленный объект Order или None, если заказ не найден.
+    Обновляет статус заказа по его ID.
     """
     async with get_db_session() as db:
         order = await db.get(Order, order_id)
         if order:
             order.status = new_status
-            await db.commit()
-            await db.refresh(order)
-            logger.info(f"Статус заказа ID {order.id} обновлен на '{new_status}'.")
-            return order
+            order.updated_at = func.now()
+            logger.info(f"Статус заказа ID {order_id} обновлен на '{new_status}'.")
+            return True
         logger.warning(f"Попытка обновить статус несуществующего заказа ID {order_id}.")
-        return None
+        return False
 
 
-async def search_orders(search_query: str, offset: int = 0, limit: Optional[int] = None) -> Tuple[
-    List[Order], int]:
+async def update_order_text(order_id: int, new_text: str) -> bool:
     """
-    Ищет заказы по user_id, ID заказа, части имени пользователя или части текста заказа.
-    Поддерживает пагинацию и возвращает общее количество найденных заказов.
-    Поиск выполняется без учета регистра.
-
-    :param search_query: Поисковый запрос пользователя.
-    :param offset: Смещение для пагинации (количество пропускаемых записей).
-    :param limit: Максимальное количество записей для возврата на одной странице.
-    :return: Кортеж: (список объектов Order, общее количество найденных заказов без учета пагинации).
-    """
-    async with get_db_session() as db:
-        search_query_stripped = search_query.strip()
-        search_pattern = f"%{search_query_stripped.lower()}%"
-
-        conditions = []
-
-        # Поиск по числовым ID (user_id или order.id)
-        try:
-            numeric_query_value = int(search_query_stripped)
-            conditions.append(or_(
-                Order.user_id == numeric_query_value,
-                Order.id == numeric_query_value
-            ))
-        except ValueError:
-            pass
-
-        # Поиск по строковым полям (username и order_text)
-        if search_query_stripped:
-            conditions.append(func.lower(Order.username).like(search_pattern))
-            conditions.append(func.lower(Order.order_text).like(search_pattern))
-
-        # Если ни одно условие не сформировано, значит, нет смысла искать
-        if not conditions:
-            logger.warning(f"Пустой список условий для поиска: '{search_query_stripped}'")
-            return [], 0
-
-        # Запрос для подсчета общего количества найденных заказов
-        count_stmt = select(func.count(Order.id)).where(or_(*conditions))
-        total_orders = (await db.scalar(count_stmt)) or 0
-
-        # Запрос для получения списка заказов с пагинацией
-        stmt = select(Order).where(or_(*conditions)).order_by(Order.created_at.desc())
-        if limit is not None:
-            stmt = stmt.offset(offset).limit(limit)
-
-        try:
-            logger.debug(
-                f"Выполняется SQL-запрос для поиска (пагинация): {stmt.compile(engine, compile_kwargs={'literal_binds': True})}")
-            result = await db.execute(stmt)
-            orders = list(result.scalars().all())
-            logger.info(f"Найдено {len(orders)} заказов по запросу: '{search_query_stripped}' (всего: {total_orders}).")
-            return orders, total_orders
-        except Exception as e:
-            logger.error(f"Ошибка при поиске заказов в БД по запросу '{search_query_stripped}': {e}")
-            return [], 0
-
-
-async def update_order_text(order_id: int, new_text: str) -> Optional[Order]:
-    """
-    Обновляет текст заказа в базе данных по ID.
-    Возвращает обновленный объект Order или None, если заказ не найден.
+    Обновляет текст заказа по его ID.
     """
     async with get_db_session() as db:
         order = await db.get(Order, order_id)
         if order:
             order.order_text = new_text
-            await db.commit()
-            await db.refresh(order)
-            logger.info(f"Текст заказа ID {order.id} успешно обновлен.")
-            return order
+            order.updated_at = func.now()
+            logger.info(f"Текст заказа ID {order_id} обновлен.")
+            return True
         logger.warning(f"Попытка обновить текст несуществующего заказа ID {order_id}.")
-        return None
+        return False
 
 
 async def delete_order(order_id: int) -> bool:
     """
     Удаляет заказ из базы данных по ID.
-    Возвращает True, если заказ был успешно удален, False в противном случае.
     """
     async with get_db_session() as db:
         order = await db.get(Order, order_id)
         if order:
             await db.delete(order)
-            await db.commit()
-            logger.info(f"Заказ ID {order.id} успешно удален из БД.")
+            logger.info(f"Заказ ID {order_id} успешно удален из БД.")
             return True
         logger.warning(f"Попытка удалить несуществующий заказ ID {order_id}.")
         return False
 
 
-# --- ФУНКЦИИ УПРАВЛЕНИЯ СООБЩЕНИЯМИ ПОМОЩИ ---
+async def get_all_orders(offset: int = 0, limit: int = 10) -> Tuple[List[Order], int]:
+    """
+    Получает все заказы из базы данных с пагинацией, отсортированные по дате создания в убывающем порядке.
+    Возвращает список заказов и общее количество заказов.
+    """
+    async with get_db_session() as db:
+        # Запрос для получения общего количества заказов
+        count_stmt = select(func.count()).select_from(Order)
+        total_orders = (await db.execute(count_stmt)).scalar_one()
 
-async def add_help_message(message_text: str, is_active: bool = False) -> HelpMessage:
+        # Запрос для получения заказов с пагинацией
+        stmt = select(Order).order_by(Order.created_at.desc()).offset(offset).limit(limit)
+        result = await db.execute(stmt)
+        orders = result.scalars().all()
+        return orders, total_orders
+
+
+async def search_orders(search_query: str, offset: int = 0, limit: int = 10) -> Tuple[List[Order], int]:
+    """
+    Ищет заказы по ID, части username или части текста заказа.
+    Поиск по тексту и username регистронезависимый.
+    Возвращает список найденных заказов и их общее количество.
+    """
+    async with get_db_session() as db:
+        search_pattern = f"%{search_query.lower()}%"
+        try:
+            # Попытка преобразовать search_query в int для поиска по ID
+            search_id = int(search_query)
+        except ValueError:
+            search_id = None
+
+        # Базовый запрос для подсчета
+        count_stmt = select(func.count()).select_from(Order)
+        # Базовый запрос для данных
+        data_stmt = select(Order)
+
+        conditions = []
+
+        if search_id is not None:
+            conditions.append(Order.id == search_id)
+
+        # Добавляем условия для текстового поиска, используя LOWER для регистронезависимости
+        # Используем func.lower() для совместимости с SQLAlchemy
+        conditions.append(func.lower(Order.username).like(search_pattern))
+        conditions.append(func.lower(Order.order_text).like(search_pattern))
+        conditions.append(func.lower(Order.full_name).like(search_pattern))
+        conditions.append(func.lower(Order.delivery_address).like(search_pattern))
+        conditions.append(func.lower(Order.contact_phone).like(search_pattern))
+        conditions.append(func.lower(Order.delivery_notes).like(search_pattern))
+
+        # Комбинируем условия с OR
+        combined_condition = or_(*conditions)
+
+        # Применяем условие к запросам
+        count_stmt = count_stmt.where(combined_condition)
+        data_stmt = data_stmt.where(combined_condition)
+
+        # Выполняем подсчет
+        total_orders = (await db.execute(count_stmt)).scalar_one()
+
+        # Выполняем запрос данных с сортировкой и пагинацией
+        data_stmt = data_stmt.order_by(Order.created_at.desc()).offset(offset).limit(limit)
+        result = await db.execute(data_stmt)
+        orders = result.scalars().all()
+
+        return orders, total_orders
+
+
+async def get_user_orders_paginated(user_id: int, offset: int = 0, limit: int = 5) -> List[Order]:
+    """
+    Получает заказы конкретного пользователя с пагинацией, отсортированные по дате создания в убывающем порядке.
+    """
+    async with get_db_session() as db:
+        stmt = select(Order).where(Order.user_id == user_id).order_by(Order.created_at.desc()).offset(offset).limit(
+            limit)
+        result = await db.execute(stmt)
+        return result.scalars().all()
+
+
+async def count_user_orders(user_id: int) -> int:
+    """
+    Подсчитывает общее количество заказов конкретного пользователя.
+    """
+    async with get_db_session() as db:
+        stmt = select(func.count()).where(Order.user_id == user_id)
+        result = await db.execute(stmt)
+        return result.scalar_one()
+
+
+# --- Функции для работы с сообщениями помощи ---
+
+async def add_help_message(message_text: str, language_code: str, is_active: bool = False) -> HelpMessage:
     """
     Добавляет новое сообщение помощи в базу данных.
-    Если is_active=True, деактивирует все остальные сообщения перед добавлением.
+    Если is_active=True, деактивирует все другие активные сообщения для этого языка.
     """
     async with get_db_session() as db:
         if is_active:
-            await db.execute(
-                text("UPDATE help_messages SET is_active = :false WHERE is_active = :true"),
-                {"false": False, "true": True}
-            )
-            logger.debug("Все предыдущие активные сообщения помощи деактивированы.")
+            # Деактивируем все текущие активные сообщения для этого языка
+            active_messages = (await db.execute(
+                select(HelpMessage).where(HelpMessage.language_code == language_code, HelpMessage.is_active == True)
+            )).scalars().all()
+            for msg in active_messages:
+                msg.is_active = False
+            await db.flush()
+            logger.info(f"Все активные сообщения помощи для языка '{language_code}' деактивированы.")
 
         new_message = HelpMessage(
             message_text=message_text,
-            is_active=is_active,
-            created_at=datetime.now(),
-            updated_at=datetime.now()
+            language_code=language_code,
+            is_active=is_active
         )
         db.add(new_message)
-        await db.commit()
-        await db.refresh(new_message)
-        logger.info(f"Сообщение помощи ID {new_message.id} успешно добавлено в БД (активно: {is_active}).")
+        await db.flush()
+        logger.info(f"Новое сообщение помощи ID {new_message.id} для языка '{language_code}' добавлено в БД.")
         return new_message
 
 
@@ -423,51 +366,75 @@ async def get_help_message_by_id(message_id: int) -> Optional[HelpMessage]:
     Получает сообщение помощи по его ID.
     """
     async with get_db_session() as db:
-        message = await db.get(HelpMessage, message_id)
-        return message
+        stmt = select(HelpMessage).where(HelpMessage.id == message_id)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
 
 
-async def get_active_help_message_from_db() -> Optional[HelpMessage]:
+async def get_active_help_message_from_db(language_code: str) -> Optional[HelpMessage]:
     """
-    Получает активное сообщение помощи из базы данных.
+    Получает активное сообщение помощи для указанного языка из базы данных.
     """
     async with get_db_session() as db:
-        stmt = select(HelpMessage).where(HelpMessage.is_active == True).limit(1)
-        active_message = await db.scalar(stmt)
-        return active_message
+        stmt = select(HelpMessage).where(HelpMessage.is_active == True, HelpMessage.language_code == language_code)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
 
 
-async def set_active_help_message(message_id: int) -> Optional[HelpMessage]:
+async def set_active_help_message(message_id: int, language_code: str) -> Optional[HelpMessage]:
     """
-    Устанавливает сообщение с указанным ID как активное, деактивируя все остальные.
-    Возвращает активированное сообщение или None, если оно не найдено.
-    Операция выполняется в рамках одной транзакции.
+    Устанавливает сообщение помощи с заданным ID как активное для указанного языка.
+    Деактивирует все другие активные сообщения для этого языка.
+    Возвращает активированное сообщение или None, если сообщение не найдено или язык не совпадает.
     """
     async with get_db_session() as db:
         try:
-            await db.execute(
-                text("UPDATE help_messages SET is_active = :false WHERE is_active = :true"),
-                {"false": False, "true": True}
-            )
-            logger.debug("Все предыдущие активные сообщения помощи деактивированы.")
-
             selected_message = await db.get(HelpMessage, message_id)
-            if selected_message:
-                selected_message.is_active = True
-                selected_message.updated_at = datetime.now()
-                await db.commit()
-                await db.refresh(selected_message)
-                logger.info(f"Сообщение помощи ID {message_id} успешно активировано.")
-                return selected_message
-            else:
-                await db.rollback()
+            if not selected_message:
                 logger.warning(
                     f"Попытка активировать несуществующее сообщение помощи ID {message_id}. Транзакция отменена.")
                 return None
+
+            # Проверяем, что сообщение относится к тому же языку, который мы пытаемся активировать
+            if selected_message.language_code != language_code:
+                logger.warning(
+                    f"Попытка активировать сообщение ID {message_id} для языка '{language_code}', "
+                    f"но сообщение имеет язык '{selected_message.language_code}'. Отмена операции."
+                )
+                return None
+
+            # Деактивируем все текущие активные сообщения для этого языка
+            active_messages = (await db.execute(
+                select(HelpMessage).where(HelpMessage.language_code == language_code, HelpMessage.is_active == True)
+            )).scalars().all()
+            for msg in active_messages:
+                msg.is_active = False
+            await db.flush()
+
+            selected_message.is_active = True
+            selected_message.updated_at = func.now()
+            logger.info(f"Сообщение помощи ID {message_id} для языка '{language_code}' успешно активировано.")
+            return selected_message
         except Exception as e:
             await db.rollback()
             logger.error(f"Ошибка при установке активного сообщения помощи ID {message_id}: {e}. Транзакция отменена.")
             raise
+
+
+async def deactivate_help_message(message_id: int) -> bool:
+    """
+    Деактивирует сообщение помощи по его ID.
+    Возвращает True, если сообщение было успешно деактивировано, False в противном случае.
+    """
+    async with get_db_session() as db:
+        message = await db.get(HelpMessage, message_id)
+        if message:
+            message.is_active = False
+            message.updated_at = func.now()
+            logger.info(f"Сообщение помощи ID {message_id} деактивировано.")
+            return True
+        logger.warning(f"Попытка деактивировать несуществующее сообщение помощи ID {message_id}.")
+        return False
 
 
 async def delete_help_message(message_id: int) -> bool:
@@ -479,19 +446,53 @@ async def delete_help_message(message_id: int) -> bool:
         message = await db.get(HelpMessage, message_id)
         if message:
             await db.delete(message)
-            await db.commit()
             logger.info(f"Сообщение помощи ID {message_id} успешно удалено из БД.")
             return True
         logger.warning(f"Попытка удалить несуществующий заказ ID {message_id}.")
         return False
 
 
-async def get_all_help_messages() -> List[HelpMessage]:
+async def get_all_help_messages(language_code: Optional[str] = None) -> List[HelpMessage]:
     """
     Получает все сообщения помощи из базы данных, отсортированные по дате создания в убывающем порядке.
+    Можно отфильтровать по language_code.
     """
     async with get_db_session() as db:
         stmt = select(HelpMessage).order_by(HelpMessage.created_at.desc())
+        if language_code:
+            stmt = stmt.where(HelpMessage.language_code == language_code)
         result = await db.execute(stmt)
-        messages = list(result.scalars().all())
-        return messages
+        return result.scalars().all()
+
+
+async def update_help_message_language(message_id: int, new_language_code: str) -> Optional[HelpMessage]:
+    """
+    Обновляет язык сообщения помощи по его ID.
+    Если сообщение было активно для старого языка, оно остается активным для нового языка,
+    при этом деактивируются другие активные сообщения для нового языка.
+    """
+    async with get_db_session() as db:
+        message = await db.get(HelpMessage, message_id)
+        if message:
+            old_language_code = message.language_code
+            is_currently_active = message.is_active
+
+            # Если сообщение было активно, деактивируем все активные для нового языка
+            if is_currently_active:
+                active_messages_for_new_lang = (await db.execute(
+                    select(HelpMessage).where(HelpMessage.language_code == new_language_code, HelpMessage.is_active == True)
+                )).scalars().all()
+                for msg in active_messages_for_new_lang:
+                    msg.is_active = False
+                await db.flush() # Применяем изменения перед обновлением текущего сообщения
+
+            message.language_code = new_language_code
+            message.updated_at = func.now()
+            # Если сообщение было активно, оно остается активным для нового языка
+            # Если не было активно, остается неактивным.
+            message.is_active = is_currently_active # Сохраняем статус активности
+
+            logger.info(f"Язык сообщения помощи ID {message_id} изменен с '{old_language_code}' на '{new_language_code}'.")
+            return message
+        logger.warning(f"Попытка обновить язык несуществующего сообщения помощи ID {message_id}.")
+        return None

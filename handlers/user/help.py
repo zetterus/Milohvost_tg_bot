@@ -28,7 +28,8 @@ async def get_help_callback(
     # lang теперь инжектируется напрямую из LocalizationMiddleware,
     # нет необходимости получать его из storage.
 
-    active_message = await get_active_help_message_from_db()
+    # ИСПРАВЛЕНО: Передаем lang в get_active_help_message_from_db
+    active_message = await get_active_help_message_from_db(lang)
 
     # Определяем текст для отправки в зависимости от наличия активного сообщения
     # Используем локализованное сообщение, если активное сообщение не настроено
@@ -44,4 +45,3 @@ async def get_help_callback(
 
     await callback.message.edit_text(text_to_send, reply_markup=keyboard.as_markup(), parse_mode=ParseMode.HTML)
     await callback.answer()
-

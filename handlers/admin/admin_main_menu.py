@@ -1,11 +1,9 @@
 import logging
-# from typing import Dict, Any # <-- УДАЛЕНО: Dict и Any больше не нужны
 
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
-# from aiogram.fsm.storage.base import BaseStorage, StorageKey # <-- УДАЛЕНО: Больше не нужны здесь
 
 from .admin_utils import _display_admin_main_menu
 from .admin_filters import IsAdmin
@@ -31,7 +29,6 @@ async def admin_command(
     """
     logger.info(f"Админ {message.from_user.id} вызвал команду /admin.")
 
-    # get_or_create_user теперь не требует storage_key и storage_obj
     await get_or_create_user(
         user_id=message.from_user.id,
         username=message.from_user.username,
@@ -39,16 +36,13 @@ async def admin_command(
         last_name=message.from_user.last_name
     )
 
-    # Вызываем функцию отображения меню, передавая lang
-    await _display_admin_main_menu(message, state, lang=lang) # <-- ИЗМЕНЕНО: Передаем lang
+    await _display_admin_main_menu(message, state, lang=lang)
 
 
 @router.callback_query(F.data == "admin_panel_back", IsAdmin())
 async def admin_panel_callbacks(
         callback: CallbackQuery,
         state: FSMContext,
-        # storage: BaseStorage, # <-- УДАЛЕНО
-        # storage_key: StorageKey, # <-- УДАЛЕНО
         lang: str
 ):
     """
@@ -57,7 +51,6 @@ async def admin_panel_callbacks(
     """
     logger.info(f"Админ {callback.from_user.id} вернулся в главное меню админ-панели.")
 
-    # get_or_create_user теперь не требует storage_key и storage_obj
     await get_or_create_user(
         user_id=callback.from_user.id,
         username=callback.from_user.username,
@@ -65,5 +58,4 @@ async def admin_panel_callbacks(
         last_name=callback.from_user.last_name
     )
 
-    # Вызываем функцию отображения меню, передавая lang
-    await _display_admin_main_menu(callback, state, lang=lang) # <-- ИЗМЕНЕНО: Передаем lang
+    await _display_admin_main_menu(callback, state, lang=lang)

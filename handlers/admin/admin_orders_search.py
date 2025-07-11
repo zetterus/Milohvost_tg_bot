@@ -1,6 +1,5 @@
 import logging
 import urllib.parse
-from typing import Union
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -46,8 +45,6 @@ async def admin_find_orders_callback(
     # Используем новый локализованный текст для запроса поискового запроса
     # и новую кнопку для отмены поиска.
     await callback.message.edit_text(
-        # chat_id=callback.message.chat.id, # <-- УДАЛЕНО: chat_id уже неявно передается
-        # message_id=callback.message.message_id, # <-- УДАЛЕНО: message_id уже неявно передается
         text=get_localized_message("admin_prompt_search_query", lang),
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=get_localized_message("admin_cancel_search_button", lang),
@@ -75,7 +72,6 @@ async def process_search_query(
         return
 
     await state.update_data(search_query=search_query)
-    # await state.set_state(AdminStates.viewing_search_results) # УДАЛЕНО: Это состояние не нужно
 
     await _display_orders_paginated(message, state, current_page=1, lang=lang, is_search=True)
 
@@ -98,7 +94,8 @@ async def admin_search_pagination_callback(
         search_query = urllib.parse.unquote_plus(search_query_encoded)
     except (ValueError, IndexError):
         logger.error(f"Админ {user_id}: Неверный формат callback_data для пагинации поиска: {callback.data}")
-        await callback.answer(get_localized_message("error_invalid_callback_data", lang), show_alert=True)
+        alert_text = get_localized_message("error_invalid_callback_data", lang)
+        await callback.answer(alert_text, show_alert=True)
         return
 
     logger.info(f"Админ {user_id} переключает страницу поиска на {page} для запроса '{search_query}'.")
@@ -108,3 +105,4 @@ async def admin_search_pagination_callback(
         await state.update_data(search_query=search_query)
 
     await _display_orders_paginated(callback, state, current_page=page, lang=lang, is_search=True)
+

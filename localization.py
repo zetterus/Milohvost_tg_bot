@@ -1,7 +1,7 @@
 import json
 import os
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List # Добавлено List
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +11,8 @@ LOCALES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'locales'
 # Словарь для кэширования загруженных локализаций
 _localized_strings: Dict[str, Dict[str, Any]] = {}
 
+# Список доступных языков (коды файлов JSON)
+_available_languages: Optional[List[str]] = None
 
 def _load_locale_file(lang_code: str) -> Optional[Dict[str, Any]]:
     """
@@ -36,26 +38,25 @@ def _load_locale_file(lang_code: str) -> Optional[Dict[str, Any]]:
 
 def get_localized_message(key: str, lang_code: str, default_lang_code: str = 'uk') -> str:
     """
-    Получает локализованную строку по ключу для указанного языка.
-    Если строка не найдена для заданного языка, пытается найти ее для языка по умолчанию.
-    Если и там не найдена, возвращает сам ключ.
+    Получает локализованное сообщение по ключу для указанного языка.
+    Если сообщение не найдено для указанного языка, пытается найти для языка по умолчанию.
+    Если и там не найдено, возвращает сам ключ.
     """
-    # Если локализация для языка еще не загружена, пытаемся ее загрузить
+    # Загружаем локаль, если она еще не загружена
     if lang_code not in _localized_strings:
         loaded_data = _load_locale_file(lang_code)
         if loaded_data:
             _localized_strings[lang_code] = loaded_data
         else:
-            # Если не удалось загрузить, используем язык по умолчанию
-            logger.warning(f"Не удалось загрузить локализацию для '{lang_code}'. Используем '{default_lang_code}'.")
-            lang_code = default_lang_code
-            if lang_code not in _localized_strings:  # Повторная попытка для дефолта
-                loaded_data_default = _load_locale_file(default_lang_code)
-                if loaded_data_default:
-                    _localized_strings[default_lang_code] = loaded_data_default
+            logger.critical(f"Не удалось загрузить локализацию для '{lang_code}'.")
+            # Если не удалось загрузить запрошенный язык, убедимся, что язык по умолчанию загружен
+            if default_lang_code not in _localized_strings:
+                default_data = _load_locale_file(default_lang_code)
+                if default_data:
+                    _localized_strings[default_lang_code] = default_data
                 else:
                     logger.critical(f"Не удалось загрузить локализацию для языка по умолчанию '{default_lang_code}'.")
-                    return key  # Крайний случай: возвращаем сам ключ
+                    return key # Возвращаем ключ, так как ничего не удалось загрузить
 
     # Получаем строку для указанного языка
     message = _localized_strings.get(lang_code, {}).get(key)
@@ -74,17 +75,18 @@ def get_localized_message(key: str, lang_code: str, default_lang_code: str = 'uk
     return str(message)  # Убедимся, что это строка
 
 
-# # Дополнительная функция для загрузки всех локалей при старте (опционально)
-# def load_all_locales_on_startup():
-#     """
-#     Загружает все доступные файлы локализаций при старте приложения.
-#     Полезно, если вы хотите, чтобы все локали были доступны сразу.
-#     """
-#     for filename in os.listdir(LOCALES_DIR):
-#         if filename.endswith(".json"):
-#             lang_code = os.path.splitext(filename)[0]
-#             if lang_code not in _localized_strings:
-#                 loaded_data = _load_locale_file(lang_code)
-#                 if loaded_data:
-#                     _localized_strings[lang_code] = loaded_data
-#     logger.info("Все доступные файлы локализаций загружены и кэшированы.")
+def get_available_languages() -> List[str]:
+    """
+    Возвращает список кодов доступных языков на основе файлов в LOCALES_DIR.
+    Кэширует результат.
+    """
+    global _available_languages
+    if _available_languages is None:
+        languages = []
+        for filename in os.listdir(LOCALES_DIR):
+            if filename.endswith(".json"):
+                lang_code = os.path.splitext(filename)[0]
+                languages.append(lang_code)
+        _available_languages = sorted(languages) # Сортируем для консистентности
+    return _available_languages
+

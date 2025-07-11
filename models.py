@@ -35,11 +35,13 @@ class User(Base):
     first_name: Mapped[Optional[str]] = mapped_column(String)
     last_name: Mapped[Optional[str]] = mapped_column(String)
     user_provided_full_name: Mapped[Optional[str]] = mapped_column(String)  # ФИО из заказа
+    # Изменено: phone_number вместо user_provided_phone_number, как в предоставленной версии
     phone_number: Mapped[Optional[str]] = mapped_column(String)  # Телефон из заказа
     language_code: Mapped[str] = mapped_column(String(5), default='uk',
                                                nullable=False)  # 'uk', 'ru', 'en', ограничение длины
     notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
+    # Изменено: last_activity_at вместо updated_at, как в предоставленной версии
     last_activity_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
     def __repr__(self) -> str:
@@ -94,11 +96,12 @@ class HelpMessage(Base):
     """
     Модель для хранения сообщений помощи, которые могут быть показаны пользователю.
     Админ может добавлять, редактировать, удалять эти сообщения и выбирать одно
-    из них как активное (только одно сообщение может быть активным одновременно).
+    из них как активное (только одно сообщение может быть активным одновременно для каждого языка).
 
     Атрибуты:
         id (int): Уникальный идентификатор сообщения помощи (первичный ключ).
         message_text (str): Полный текст сообщения помощи.
+        language_code (str): Код языка, к которому относится сообщение (например, 'uk', 'en', 'ru').
         is_active (bool): Флаг, указывающий, является ли это сообщение активным.
         created_at (datetime): Дата и время создания сообщения.
         updated_at (datetime): Дата и время последнего обновления сообщения.
@@ -107,10 +110,19 @@ class HelpMessage(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     message_text: Mapped[str] = mapped_column(Text, nullable=False)
+    # Добавлено поле language_code
+    language_code: Mapped[str] = mapped_column(String(10), nullable=False, default='uk', index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=False, index=True)  # Добавлен индекс для is_active
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
+    # UniqueConstraint с sqlite_where был удален, так как он вызывал ошибку
+    # и его функциональность по обеспечению уникальности активного сообщения
+    # для каждого языка уже реализована на уровне приложения в db.py.
+
     def __repr__(self) -> str:
         """Представление объекта HelpMessage для отладки."""
-        return f"<HelpMessage(id={self.id}, is_active={self.is_active})>"
+        # Обновлено __repr__ для включения language_code
+        return (f"<HelpMessage(id={self.id}, lang='{self.language_code}', "
+                f"is_active={self.is_active}, text='{self.message_text[:50]}...')>")
+

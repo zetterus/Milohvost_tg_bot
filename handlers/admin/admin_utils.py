@@ -47,10 +47,6 @@ async def _display_admin_main_menu(
 
     await state.clear()
 
-    # Получаем язык пользователя из аргумента lang, а не из Storage
-    # user_storage_data = await storage.get_data(key=storage_key) # <-- УДАЛЕНО
-    # lang = user_storage_data.get('lang', 'uk')  # По умолчанию 'uk' # <-- УДАЛЕНО
-
     # Используем новую внутреннюю функцию для создания клавиатуры
     keyboard = _get_admin_main_menu_keyboard(lang)
     reply_markup = keyboard.as_markup()
@@ -68,10 +64,8 @@ async def _display_admin_main_menu(
 async def _display_orders_paginated(
         update_object: Union[Message, CallbackQuery],
         state: FSMContext,
-        # storage: BaseStorage, # <-- УДАЛЕНО
-        # storage_key: StorageKey, # <-- УДАЛЕНО
         current_page: int,
-        lang: str,  # <-- ДОБАВЛЕНО: lang передается напрямую
+        lang: str,
         is_search: bool = False
 ):
     """
@@ -84,8 +78,6 @@ async def _display_orders_paginated(
 
     :param update_object: Объект Message или CallbackQuery, инициировавший отображение.
     :param state: FSMContext для управления состоянием и данными (например, поисковым запросом).
-    # :param storage: Объект Storage для доступа к персистентным данным пользователя. # <-- УДАЛЕНО
-    # :param storage_key: StorageKey для идентификации данных пользователя. # <-- УДАЛЕНО
     :param current_page: Текущий номер отображаемой страницы.
     :param lang: Язык для локализации сообщений.
     :param is_search: Булевый флаг, указывающий, является ли текущее отображение результатами поиска.
@@ -95,10 +87,6 @@ async def _display_orders_paginated(
     offset = (current_page - 1) * ORDERS_PER_PAGE
     query_text = None
 
-    # Получаем язык пользователя из аргумента lang
-    # user_storage_data = await storage.get_data(key=storage_key) # <-- УДАЛЕНО
-    # lang = user_storage_data.get('lang', 'uk') # <-- УДАЛЕНО
-
     if is_search:
         data = await state.get_data()
         query_text = data.get("search_query")
@@ -107,7 +95,7 @@ async def _display_orders_paginated(
                 f"Админ {user_id}: Попытка пагинации поиска без search_query в FSM. Возврат в админ-панель.")
             error_message = get_localized_message("error_search_query_not_found", lang)
             await update_object.answer(error_message, show_alert=True)
-            await _display_admin_main_menu(update_object, state, lang=lang)  # <-- ИЗМЕНЕНО
+            await _display_admin_main_menu(update_object, state, lang=lang)
             return
 
         orders, total_orders = await search_orders(search_query=query_text, offset=offset, limit=ORDERS_PER_PAGE)
@@ -136,17 +124,22 @@ async def _display_orders_paginated(
     # --- Кнопки для каждого заказа ---
     order_buttons_builder = InlineKeyboardBuilder()
     for order in orders:
-        # Обрезаем текст сообщения для предпросмотра на кнопке
         preview_text = order.order_text[:MAX_PREVIEW_TEXT_LENGTH]
         if len(order.order_text) > MAX_PREVIEW_TEXT_LENGTH:
             preview_text += "..."
 
-        # Формат кнопки: ID: [orderid] | [ordermessage]
-        # Убраны теги <code>, так как они не работают на кнопках
         button_text = f"ID: {order.id} | {preview_text}"
+
+        # --- ИЗМЕНЕНО ЗДЕСЬ: Добавляем контекст навигации в callback_data ---
+        # Формат: view_order_<тип_списка>:<order_id>:<current_page>[:<encoded_query_text>]
+        navigation_context = f"all:{current_page}"
+        if is_search and query_text:
+            encoded_query = urllib.parse.quote_plus(query_text)
+            navigation_context = f"search:{current_page}:{encoded_query}"
+
         order_buttons_builder.add(InlineKeyboardButton(
             text=button_text,
-            callback_data=f"view_order_{order.id}"
+            callback_data=f"view_order_details:{order.id}:{navigation_context}" # Новый callback_data
         ))
     order_buttons_builder.adjust(1)
 

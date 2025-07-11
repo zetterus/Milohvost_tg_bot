@@ -1,5 +1,6 @@
 import logging
 import html
+import urllib.parse
 from typing import Union
 
 from aiogram import Router, F
@@ -36,12 +37,13 @@ async def _display_order_details(
     order = await get_order_by_id(order_id)
 
     if not order:
-        error_message = get_localized_message("order_not_found", lang).format(order_id=order_id)
+        error_message_html = get_localized_message("order_not_found", lang).format(order_id=order_id)
+        alert_text = get_localized_message("order_not_found", lang).format(order_id=order_id) # Используем версию без HTML
         if isinstance(update_object, Message):
-            await update_object.answer(error_message, parse_mode=ParseMode.HTML)
+            await update_object.answer(error_message_html, parse_mode=ParseMode.HTML)
         elif isinstance(update_object, CallbackQuery):
-            await update_object.answer(error_message, show_alert=True)
-            await update_object.message.edit_text(error_message, parse_mode=ParseMode.HTML)
+            await update_object.answer(alert_text, show_alert=True)
+            await update_object.message.edit_text(error_message_html, parse_mode=ParseMode.HTML)
         # Возвращаемся к списку всех заказов или в главное меню
         await _display_orders_paginated(update_object, state, current_page=1, lang=lang)
         return
@@ -107,9 +109,22 @@ async def _display_order_details(
     keyboard.row(InlineKeyboardButton(text=get_localized_message("admin_delete_order_button", lang),
                                       callback_data=f"admin_confirm_delete_order:{order.id}"))
 
-    # Кнопка возврата
+    # --- ИЗМЕНЕНО ЗДЕСЬ: Динамическая кнопка "Назад" ---
+    data = await state.get_data()
+    origin_type = data.get("origin_type")
+    origin_page = data.get("origin_page", 1) # По умолчанию страница 1
+    origin_search_query = data.get("origin_search_query")
+
+    back_callback_data = "admin_panel_back" # Дефолтное значение, если нет информации об источнике
+
+    if origin_type == "all":
+        back_callback_data = f"admin_all_orders_page:{origin_page}"
+    elif origin_type == "search" and origin_search_query:
+        encoded_query = urllib.parse.quote_plus(origin_search_query)
+        back_callback_data = f"admin_search_page:{origin_page}:{encoded_query}"
+
     keyboard.row(InlineKeyboardButton(text=get_localized_message("button_back_to_orders", lang),
-                                      callback_data="admin_all_orders_start")) # Возвращаемся к первой странице всех заказов
+                                      callback_data=back_callback_data))
 
     reply_markup = keyboard.as_markup()
 
@@ -122,7 +137,7 @@ async def _display_order_details(
 
 # --- Хэндлеры для просмотра деталей заказа ---
 
-@router.callback_query(F.data.startswith("view_order_"), IsAdmin())
+@router.callback_query(F.data.startswith("view_order_details:"), IsAdmin())
 async def view_order_callback(
         callback: CallbackQuery,
         state: FSMContext,
@@ -130,16 +145,30 @@ async def view_order_callback(
 ):
     """
     Обрабатывает нажатие на кнопку заказа в списке, чтобы показать его детали.
+    Теперь также сохраняет контекст навигации (откуда пришли).
     """
     user_id = callback.from_user.id
     try:
-        order_id = int(callback.data.split("_")[2]) # Извлекаем order_id из callback_data
-    except (ValueError, IndexError):
-        logger.error(f"Админ {user_id}: Неверный формат callback_data для просмотра заказа: {callback.data}")
-        await callback.answer(get_localized_message("error_invalid_callback_data", lang), show_alert=True)
+        parts = callback.data.split(":")
+        order_id = int(parts[1])
+        origin_type = parts[2] # 'all' или 'search'
+        origin_page = int(parts[3])
+        origin_search_query = urllib.parse.unquote_plus(parts[4]) if len(parts) > 4 else None # Для поиска
+
+        # --- ДОБАВЛЕНО: Сохраняем контекст навигации в FSM ---
+        await state.update_data(
+            origin_type=origin_type,
+            origin_page=origin_page,
+            origin_search_query=origin_search_query
+        )
+
+    except (ValueError, IndexError) as e:
+        logger.error(f"Админ {user_id}: Неверный формат callback_data для просмотра заказа: {callback.data}. Ошибка: {e}")
+        alert_text = get_localized_message("error_invalid_callback_data", lang)
+        await callback.answer(alert_text, show_alert=True)
         return
 
-    logger.info(f"Админ {user_id} запросил просмотр заказа ID: {order_id}.")
+    logger.info(f"Админ {user_id} запросил просмотр заказа ID: {order_id} из {origin_type} (страница {origin_page}).")
     await _display_order_details(callback, state, order_id, lang)
 
 
@@ -161,7 +190,8 @@ async def admin_change_order_status_callback(
         new_status = parts[2]
     except (ValueError, IndexError):
         logger.error(f"Админ {user_id}: Неверный формат callback_data для изменения статуса: {callback.data}")
-        await callback.answer(get_localized_message("error_invalid_callback_data", lang), show_alert=True)
+        alert_text = get_localized_message("error_invalid_callback_data", lang)
+        await callback.answer(alert_text, show_alert=True)
         return
 
     logger.info(f"Админ {user_id} меняет статус заказа ID: {order_id} на {new_status}.")
@@ -200,7 +230,8 @@ async def admin_edit_order_text_callback(
         order_id = int(callback.data.split(":")[1])
     except (ValueError, IndexError):
         logger.error(f"Админ {user_id}: Неверный формат callback_data для редактирования текста: {callback.data}")
-        await callback.answer(get_localized_message("error_invalid_callback_data", lang), show_alert=True)
+        alert_text = get_localized_message("error_invalid_callback_data", lang)
+        await callback.answer(alert_text, show_alert=True)
         return
 
     logger.info(f"Админ {user_id} запросил редактирование текста заказа ID: {order_id}.")
@@ -248,11 +279,9 @@ async def admin_process_new_order_text(
     success = await update_order_text(order_id, new_text)
 
     if success:
-        alert_text = get_localized_message("admin_order_text_updated_success", lang).format(order_id=order_id)
-        await message.answer(alert_text, parse_mode=ParseMode.HTML)
+        await message.answer(get_localized_message("admin_order_text_updated_success", lang).format(order_id=order_id), parse_mode=ParseMode.HTML)
     else:
-        alert_text = get_localized_message("admin_order_text_update_failed", lang).format(order_id=order_id)
-        await message.answer(alert_text, parse_mode=ParseMode.HTML)
+        await message.answer(get_localized_message("admin_order_text_update_failed", lang).format(order_id=order_id), parse_mode=ParseMode.HTML)
 
     await state.clear()
     # Возвращаемся к деталям заказа после обновления
@@ -273,12 +302,14 @@ async def admin_cancel_edit_order_text_callback(
         order_id = int(callback.data.split(":")[1])
     except (ValueError, IndexError):
         logger.error(f"Админ {user_id}: Неверный формат callback_data для отмены редактирования: {callback.data}")
-        await callback.answer(get_localized_message("error_invalid_callback_data", lang), show_alert=True)
+        alert_text = get_localized_message("error_invalid_callback_data", lang)
+        await callback.answer(alert_text, show_alert=True)
         return
 
     logger.info(f"Админ {user_id} отменил редактирование текста заказа ID: {order_id}.")
     await state.clear()
-    await callback.answer("Редактирование отменено.", show_alert=True) # Простое подтверждение
+    alert_text = get_localized_message("admin_edit_text_cancelled_alert", lang)
+    await callback.answer(alert_text, show_alert=True)
     await _display_order_details(callback, state, order_id, lang)
 
 
@@ -298,7 +329,8 @@ async def admin_confirm_delete_order_callback(
         order_id = int(callback.data.split(":")[1])
     except (ValueError, IndexError):
         logger.error(f"Админ {user_id}: Неверный формат callback_data для подтверждения удаления: {callback.data}")
-        await callback.answer(get_localized_message("error_invalid_callback_data", lang), show_alert=True)
+        alert_text = get_localized_message("error_invalid_callback_data", lang)
+        await callback.answer(alert_text, show_alert=True)
         return
 
     logger.info(f"Админ {user_id} запросил подтверждение удаления заказа ID: {order_id}.")
@@ -307,7 +339,7 @@ async def admin_confirm_delete_order_callback(
     keyboard.row(InlineKeyboardButton(text=get_localized_message("button_yes_delete", lang),
                                       callback_data=f"admin_delete_order:{order_id}"))
     keyboard.row(InlineKeyboardButton(text=get_localized_message("button_no_cancel", lang),
-                                      callback_data=f"view_order_{order_id}")) # Возвращаемся к деталям заказа
+                                      callback_data=f"view_order_details:{order_id}:all:1")) # Возвращаемся к деталям заказа, если отмена
     keyboard.adjust(1)
 
     await callback.message.edit_text(
@@ -332,7 +364,8 @@ async def admin_delete_order_confirmed_callback(
         order_id = int(callback.data.split(":")[1])
     except (ValueError, IndexError):
         logger.error(f"Админ {user_id}: Неверный формат callback_data для удаления заказа: {callback.data}")
-        await callback.answer(get_localized_message("error_invalid_callback_data", lang), show_alert=True)
+        alert_text = get_localized_message("error_invalid_callback_data", lang)
+        await callback.answer(alert_text, show_alert=True)
         return
 
     logger.info(f"Админ {user_id} подтвердил удаление заказа ID: {order_id}.")

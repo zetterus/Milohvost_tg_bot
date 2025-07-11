@@ -1,25 +1,25 @@
 import logging
-from typing import Union # Dict, Any больше не нужны
+from typing import Union
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
-# from aiogram.fsm.storage.base import BaseStorage, StorageKey # Больше не нужны
 
-from aiogram.utils.keyboard import InlineKeyboardBuilder # <-- ДОБАВЛЕНО
-from aiogram.enums import ParseMode # <-- ДОБАВЛЕНО
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.enums import ParseMode
 
-from localization import get_localized_message # Импортируем функцию локализации
-from db import update_user_language # Импортируем функции БД (get_user_language_code удален, так как не используется)
+from localization import get_localized_message
+from db import update_user_language
 
 logger = logging.getLogger(__name__)
-router = Router() # <-- Основной роутер для user_utils.py
+router = Router()
+
 
 # --- Вспомогательная функция для отображения главного меню пользователя ---
 async def _display_user_main_menu(
-    update_object: Union[Message, CallbackQuery],
-    state: FSMContext,
-    lang: str
+        update_object: Union[Message, CallbackQuery],
+        state: FSMContext,
+        lang: str
 ):
     """
     Отображает главное меню для пользователя, сбрасывая его FSM-состояние.
@@ -33,7 +33,7 @@ async def _display_user_main_menu(
     user_id = update_object.from_user.id
     logger.info(f"Пользователь {user_id} переходит в главное меню (язык: {lang}).")
 
-    await state.clear()  # Очищаем все данные из FSM, чтобы начать с чистого листа
+    await state.clear()
 
     keyboard = InlineKeyboardBuilder()
     keyboard.button(text=get_localized_message("button_make_order", lang), callback_data="make_order")
@@ -52,11 +52,12 @@ async def _display_user_main_menu(
         await update_object.answer()
         await update_object.message.edit_text(menu_text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
 
+
 # --- ХЕНДЛЕР для отображения опций языка ---
 @router.callback_query(F.data == "show_language_options")
 async def show_language_options_callback(
-    callback: CallbackQuery,
-    lang: str
+        callback: CallbackQuery,
+        lang: str
 ):
     """
     Показывает пользователю опции для смены языка.
@@ -68,7 +69,8 @@ async def show_language_options_callback(
     keyboard.button(text="🇺🇦 Українська", callback_data="set_lang_uk")
     keyboard.button(text="🇬🇧 English", callback_data="set_lang_en")
     keyboard.button(text="🇷🇺 Русский", callback_data="set_lang_ru")
-    keyboard.row(InlineKeyboardButton(text=get_localized_message("button_back_to_main_menu", lang), callback_data="user_main_menu_back"))
+    keyboard.row(InlineKeyboardButton(text=get_localized_message("button_back_to_main_menu", lang),
+                                      callback_data="user_main_menu_back"))
     keyboard.adjust(1)
 
     await callback.message.edit_text(
@@ -78,17 +80,16 @@ async def show_language_options_callback(
     )
     await callback.answer()
 
+
 # --- Хендлер для получения информации о языке (перемещен из main_menu.py) ---
 @router.message(F.text == "Мой язык")
 async def get_my_language(
         message: Message,
-        lang: str # <-- ОСТАВЛЕНО
+        lang: str
 ):
     """
     Обрабатывает запрос пользователя на получение информации о текущем языке.
     """
-    # get_user_language_code теперь не требует storage_key и storage_obj
-    # current_lang = await get_user_language_code(message.from_user.id) # Если нужно получить из БД
     await message.answer(get_localized_message("your_current_language", lang).format(current_lang=lang))
 
 
@@ -96,21 +97,44 @@ async def get_my_language(
 @router.callback_query(F.data.startswith("set_lang_"))
 async def change_user_language(
         callback: CallbackQuery,
-        lang: str # <-- ОСТАВЛЕНО
+        lang: str
 ):
     """
     Обрабатывает выбор пользователя для смены языка.
     Обновляет язык в БД.
     """
     user_id = callback.from_user.id
-    new_lang = callback.data.split('_')[2] # Извлекаем код нового языка из callback_data
+    new_lang = callback.data.split('_')[2]
 
     updated_user = await update_user_language(user_id, new_lang)
 
+    # Создаем клавиатуру с кнопкой "Назад в главное меню"
+    keyboard = InlineKeyboardBuilder()
+    keyboard.row(InlineKeyboardButton(
+        text=get_localized_message("button_back_to_main_menu", new_lang),  # Используем new_lang для локализации кнопки
+        callback_data="user_main_menu_back"
+    ))
+    reply_markup = keyboard.as_markup()
+
     if updated_user:
-        await callback.answer(get_localized_message("language_changed_success_alert", updated_user.language_code),
-                              show_alert=True)
-        await callback.message.delete()
+        # Форматируем сообщение, передавая new_lang для заполнения плейсхолдера
+        success_message_text = get_localized_message("language_changed_success_alert",
+                                                     updated_user.language_code).format(
+            new_lang=updated_user.language_code.upper())
+
+        # Редактируем существующее сообщение, чтобы показать подтверждение и кнопку
+        await callback.message.edit_text(
+            success_message_text,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.HTML
+        )
+        await callback.answer()  # Отвечаем на callback, чтобы убрать "часики"
     else:
-        await callback.answer(get_localized_message("language_change_failed_alert", lang), show_alert=True)
-        await callback.message.edit_reply_markup(reply_markup=None)
+        error_message_text = get_localized_message("language_change_failed_alert", lang)
+        # Редактируем существующее сообщение, чтобы показать ошибку и кнопку
+        await callback.message.edit_text(
+            error_message_text,
+            reply_markup=reply_markup,  # Оставляем кнопку "Назад в главное меню" даже при ошибке
+            parse_mode=ParseMode.HTML
+        )
+        await callback.answer()
