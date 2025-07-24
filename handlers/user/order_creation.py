@@ -2,7 +2,7 @@ import logging
 from typing import Union
 import html
 
-from aiogram import Router, F
+from aiogram import Router, F, Bot
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
 from aiogram.types import (
     Message,
@@ -14,7 +14,7 @@ from aiogram.types import (
 from aiogram.fsm.context import FSMContext
 from aiogram.enums import ParseMode
 
-from db import add_new_order
+from db import add_new_order, get_or_create_user # Добавлен get_or_create_user для получения username
 from config import (
     ORDER_FIELDS_CONFIG,
     ORDER_FIELD_MAP,
@@ -22,7 +22,7 @@ from config import (
     ORDER_FIELD_NAMES_KEYS
 )
 from .user_states import OrderStates
-from .user_utils import _display_user_main_menu
+from .user_utils import _display_user_main_menu, send_new_order_notification_to_admins, send_user_notification # Добавлен импорт send_user_notification
 from localization import get_localized_message
 
 logger = logging.getLogger(__name__)
@@ -61,14 +61,18 @@ async def _request_next_field(
         update_object: Union[Message, CallbackQuery],
         state: FSMContext,
         lang: str,
-        next_field_key: str  # Теперь функция явно принимает ключ следующего поля
+        next_field_key: str
 ):
     """
     Вспомогательная функция для запроса следующего поля.
     """
     user_data = await state.get_data()
+    user_id = update_object.from_user.id # Добавлено для логирования
+
+    logger.info(f"Пользователь {user_id}: Запрос следующего поля. next_field_key: {next_field_key}") # Добавлено логирование
 
     if next_field_key == "final_confirm":
+        logger.info(f"Пользователь {user_id}: Переход к окончательному подтверждению заказа.") # Добавлено логирование
         # Переходим к окончательному подтверждению
         await state.set_state(OrderStates.confirm_order)
         # Формируем окончательное резюме заказа
@@ -125,7 +129,7 @@ async def _request_next_field(
     # Переходим к следующему полю
     next_field_config = ORDER_FIELD_MAP.get(next_field_key)
     if not next_field_config:
-        logger.error(f"Не найдена конфигурация для следующего поля: {next_field_key}")
+        logger.error(f"Пользователь {user_id}: Не найдена конфигурация для следующего поля: {next_field_key}. Возврат в главное меню.") # Добавлено логирование
         await _display_user_main_menu(update_object, state, lang=lang)
         return
 
@@ -133,6 +137,8 @@ async def _request_next_field(
     await state.update_data(current_field_key=next_field_config["key"])  # Обновляем текущий ключ поля
 
     prompt_text = get_localized_message(next_field_config["prompt_key"], lang)
+
+    logger.info(f"Пользователь {user_id}: Запрашиваем поле '{next_field_key}' с типом ввода '{next_field_config['input_type']}'.") # Добавлено логирование
 
     # Логика отправки сообщения в зависимости от типа ввода и типа update_object
     if next_field_config["input_type"] == "buttons":  # InlineKeyboardMarkup
@@ -168,15 +174,20 @@ async def _request_next_field(
         elif isinstance(update_object, Message):
             await update_object.answer(prompt_text, reply_markup=reply_markup_to_send, parse_mode=ParseMode.HTML)
 
-    elif next_field_config["input_type"] == "text":  # Обычный текстовый ввод
+    elif next_field_config["input_type"] == "text": # Обработка текстового ввода
+        reply_markup_to_send = ReplyKeyboardRemove() # Удаляем предыдущую ReplyKeyboardMarkup, если она была
+
+        # ИСПРАВЛЕНО: Если предыдущее действие было CallbackQuery, удаляем старое сообщение
+        # и отправляем новое с ReplyKeyboardRemove.
         if isinstance(update_object, CallbackQuery):
-            await update_object.message.edit_text(prompt_text, parse_mode=ParseMode.HTML)
+            await update_object.message.delete() # Удаляем сообщение с инлайн-клавиатурой
+            await update_object.message.answer(prompt_text, reply_markup=reply_markup_to_send, parse_mode=ParseMode.HTML)
             await update_object.answer()
         elif isinstance(update_object, Message):
-            await update_object.answer(prompt_text, parse_mode=ParseMode.HTML)
-
+            # Если предыдущее сообщение было обычным текстом, отвечаем новым сообщением
+            await update_object.answer(prompt_text, reply_markup=reply_markup_to_send, parse_mode=ParseMode.HTML)
     else:
-        logger.error(f"Неизвестный тип ввода '{next_field_config['input_type']}' для поля '{next_field_key}'.")
+        logger.error(f"Пользователь {user_id}: Неизвестный тип ввода '{next_field_config['input_type']}' для поля '{next_field_key}'. Возврат в главное меню.") # Добавлено логирование
         # Обработка ошибки: возвращение в главное меню
         if isinstance(update_object, CallbackQuery):
             await update_object.answer(get_localized_message("error_input_type", lang), show_alert=True)
@@ -427,35 +438,51 @@ async def confirm_field_input(
 async def final_confirm_order(
         callback: CallbackQuery,
         state: FSMContext,
+        bot: Bot,
         lang: str
 ):
     """
     Обрабатывает окончательное подтверждение заказа пользователем.
-    Сохраняет заказ в базу данных и очищает состояние.
+    Сохраняет заказ в базу данных, отправляет уведомление админам и очищает состояние.
     """
     user_data = await state.get_data()
     user_id = callback.from_user.id
     logger.info(f"Пользователь {user_id} окончательно подтвердил заказ.")
 
-    username_to_save = callback.from_user.username or callback.from_user.full_name or str(user_id)
+    # Получаем актуальные данные пользователя для username и т.д.
+    user = await get_or_create_user(
+        user_id=user_id,
+        username=callback.from_user.username, # Передаем username из callback
+        first_name=callback.from_user.first_name,
+        last_name=callback.from_user.last_name
+    )
+    username_to_save = user.username if user else None
 
     new_order = await add_new_order(
         user_id=user_id,
         username=username_to_save,
         order_text=user_data.get('order_text', get_localized_message("not_specified", lang)),
-        # Используем "not_specified"
         full_name=user_data.get('full_name'),
         delivery_address=user_data.get('delivery_address'),
         payment_method=user_data.get('payment_method'),
         contact_phone=user_data.get('contact_phone'),
         delivery_notes=user_data.get('delivery_notes', get_localized_message("no_notes_display", lang))
-        # Используем "no_notes_display"
     )
 
     if new_order:
         await callback.message.edit_text(
             get_localized_message("order_placed_success", lang).format(order_id=new_order.id),
             parse_mode=ParseMode.HTML
+        )
+        # ИЗМЕНЕНО: Теперь передаем только ID заказа
+        await send_new_order_notification_to_admins(bot, new_order.id)
+        # Отправляем уведомление пользователю (если уведомления включены)
+        await send_user_notification(
+            bot,
+            user_id,
+            "order_placed_success_user_notification", # Новый ключ локализации для уведомления пользователя
+            lang,
+            order_id=new_order.id
         )
     else:
         await callback.message.edit_text(

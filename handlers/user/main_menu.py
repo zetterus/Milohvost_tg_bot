@@ -6,7 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
 
 from db import get_or_create_user
-from .user_utils import _display_user_main_menu
+from .user_utils import _display_user_main_menu #, send_new_order_notification_to_admins # send_new_order_notification_to_admins больше не нужен здесь
 
 logger = logging.getLogger(__name__)
 router = Router()

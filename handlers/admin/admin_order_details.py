@@ -3,18 +3,19 @@ import html
 import urllib.parse
 from typing import Union
 
-from aiogram import Router, F
+from aiogram import Router, F, Bot # Импортируем Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.enums import ParseMode
 
-from db import get_order_by_id, update_order_status, update_order_text, delete_order
+from db import get_order_by_id, update_order_status, update_order_text, delete_order, get_user_language_code # Импортируем get_user_language_code
 from config import ORDER_STATUS_KEYS, ORDER_FIELD_NAMES_KEYS, ORDER_FIELD_MAP
 from .admin_filters import IsAdmin
 from .admin_states import AdminStates
 from .admin_utils import _display_orders_paginated, _display_admin_main_menu
 from localization import get_localized_message
+from handlers.user.user_utils import send_user_notification # Импортируем send_user_notification
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -53,7 +54,7 @@ async def _display_order_details(
 
     order_details_text = get_localized_message("order_details_title", lang).format(order_id=order.id) + "\n\n"
     order_details_text += get_localized_message("order_details_user", lang).format(
-        username=html.escape(order.username), user_id=order.user_id
+        username=html.escape(order.username) if order.username else get_localized_message("not_available", lang), user_id=order.user_id
     ) + "\n"
 
     # Локализация статуса
@@ -178,10 +179,12 @@ async def view_order_callback(
 async def admin_change_order_status_callback(
         callback: CallbackQuery,
         state: FSMContext,
-        lang: str
+        lang: str,
+        bot: Bot # ДОБАВЛЕНО: Параметр bot для отправки уведомлений
 ):
     """
     Обрабатывает изменение статуса заказа.
+    После успешного изменения отправляет уведомление пользователю.
     """
     user_id = callback.from_user.id
     try:
@@ -196,14 +199,39 @@ async def admin_change_order_status_callback(
 
     logger.info(f"Админ {user_id} меняет статус заказа ID: {order_id} на {new_status}.")
 
+    # Получаем заказ до обновления статуса, чтобы получить user_id
+    order = await get_order_by_id(order_id)
+    if not order:
+        alert_text = get_localized_message("admin_status_change_failed_alert", lang).format(order_id=order_id)
+        await callback.answer(alert_text, show_alert=True)
+        logger.error(f"Админ {user_id}: Не удалось найти заказ ID {order_id} для изменения статуса.")
+        await _display_order_details(callback, state, order_id, lang)
+        return
+
     success = await update_order_status(order_id, new_status)
-    status_name = get_localized_message(f"order_status_{new_status}", lang)
+    status_name_for_admin = get_localized_message(f"order_status_{new_status}", lang)
 
     if success:
         alert_text = get_localized_message("admin_status_changed_alert", lang).format(
-            order_id=order_id, status_name=status_name
+            order_id=order_id, status_name=status_name_for_admin
         )
         await callback.answer(alert_text, show_alert=True)
+
+        # --- ДОБАВЛЕНО: Отправка уведомления пользователю ---
+        user_order_id = order.user_id # ID пользователя, который сделал заказ
+        user_lang = await get_user_language_code(user_order_id) # Получаем язык пользователя
+        status_name_for_user = get_localized_message(f"order_status_{new_status}", user_lang) # Локализуем статус для языка пользователя
+
+        await send_user_notification(
+            bot=bot,
+            user_id=user_order_id,
+            message_key="user_order_status_changed_notification",
+            lang=user_lang,
+            order_id=order_id,
+            new_status_name=status_name_for_user # Передаем локализованное имя нового статуса
+        )
+        logger.info(f"Админ {user_id} отправил уведомление пользователю {user_order_id} о смене статуса заказа {order_id} на '{new_status}'.")
+
     else:
         alert_text = get_localized_message("admin_status_change_failed_alert", lang).format(
             order_id=order_id

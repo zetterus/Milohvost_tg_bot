@@ -82,6 +82,9 @@
   "field_name_payment_method": "Оплата",
   "field_name_contact_phone": "Телефон",
   "field_name_delivery_notes": "Примітки",
+  "field_name_username": "Юзернейм",
+  "field_name_sent_at": "Дата відправки",
+  "field_name_received_at": "Дата отримання",
 
   "_COMMENT_Admin_panel_main_menu": "COMMENT",
   "admin_welcome_message": "<b>Ласкаво просимо до Адмін-панелі! Оберіть дію:</b>",
@@ -101,10 +104,14 @@
   "error_search_query_not_found": "Помилка: Пошуковий запит не знайдено. Будь ласка, почніть новий пошук.",
   "admin_prompt_search_query": "Будь ласка, введіть ID замовлення, частину імені користувача або частину тексту замовлення для пошуку:",
   "admin_cancel_search_button": "Скасувати пошук",
+  "button_export_csv": "Завантажити у CSV 📊",
+  "export_csv_success_alert": "Файл CSV з замовлення успішно згенеровано та надіслано!",
+  "export_csv_no_data_alert": "Нема данних для экспорту у CSV.",
+  "export_csv_error_alert": "Сталася помилка при экспорті в CSV.",
 
   "_COMMENT_Admin_order_details_and_actions": "COMMENT",
   "order_details_title": "<b>Деталі замовлення № {order_id}</b>",
-  "order_details_user": "<b>Користувач:</b> <b>{username}</b> ({user_id})",
+  "order_details_user": "<b>Користувач:</b> @{username} (ID: {user_id})",
   "order_details_status": "<b>Статус:</b> <b>{status}</b>",
   "order_details_order_text": "<b>Текст замовлення:</b>\n<code>{order_text}</code>",
   "order_details_full_name": "<b>Повне ім'я:</b> {full_name}",
@@ -130,7 +137,6 @@
   "admin_order_deleted_success_alert": "Замовлення №{order_id} успішно видалено.",
   "admin_order_delete_failed_alert": "Не вдалося видалити замовлення. Замовлення не знайдено.",
   "error_invalid_callback_data": "Помилка: Невірний формат даних.",
-  "button_back_to_orders": "⬅️ Назад до Замовлень",
   "admin_edit_text_cancelled_alert": "Редагування скасовано.",
 
   "_COMMENT_Admin_help_messages_management": "COMMENT",
@@ -175,7 +181,7 @@
   "admin_help_message_added_success": "✅ Повідомлення допомоги (ID: <code>{message_id}</code>) успішно додано.",
   "admin_help_all_messages_title": "<b>Усі повідомлення допомоги:</b>",
   "admin_help_message_entry": "{status_emoji} ID: <code>{message_id}</code> | Попередній перегляд: \"{preview_text}\" | Створено: {created_at}",
-  "admin_help_prompt_activate_language": "Для якої мови ви хочете активувати це повідомлення?",
+  "admin_help_prompt_activate_language": "Для якого языка вы хотите активировать это сообщение?",
   "admin_help_filter_all": "Усі",
   "admin_button_deactivate_help_message": "Деактивувати ❌",
   "admin_help_deactivated_success": "Повідомлення ID: {message_id} успішно деактивовано.",
@@ -195,5 +201,23 @@
   "choose_language_prompt": "Будь ласка, оберіть мову:",
   "your_current_language": "Твоя поточна мова: {current_lang}",
   "language_changed_success_alert": "Мову змінено на {new_lang}!",
-  "language_change_failed_alert": "Не вдалося змінити мову."
+  "language_change_failed_alert": "Не вдалося змінити мову.",
+
+  "_COMMENT_Notification_settings": "COMMENT",
+  "button_notification_settings": "Налаштування сповіщень 🔔",
+  "notification_settings_title": "<b>Налаштування сповіщень</b>\n\nПоточний статус: {status_emoji} {current_status}\n\nБажаєте змінити?",
+  "notifications_enabled_status": "Увімкнено",
+  "notifications_disabled_status": "Вимкнено",
+  "button_enable_notifications": "Увімкнути сповіщення ✅",
+  "button_disable_notifications": "Вимкнути сповіщення ❌",
+  "notifications_enabled_alert": "Сповіщення увімкнено!",
+  "notifications_disabled_alert": "Сповіщення вимкнено!",
+  "notifications_toggle_failed_alert": "Не вдалося змінити статус сповіщень.",
+  "order_placed_success_user_notification": "Ваше замовлення №<b>{order_id}</b> успішно створено! Ви будете отримувати оновлення тут.",
+  "user_order_status_changed_notification": "🔔 Статус вашого замовлення №<b>{order_id}</b> змінено на: <b>{new_status_name}</b>.",
+
+  "_COMMENT_Admin_notifications": "COMMENT",
+  "admin_new_order_notification_title": "🔔 НОВЕ ЗАМОВЛЕННЯ №{order_id} 🔔",
+  "admin_new_order_notification_details": "<b>Користувач:</b> {username} (ID: {user_id})\n<b>Повне ім'я:</b> {full_name}\n<b>Телефон:</b> {phone_number}\n<b>Текст замовлення:</b>\n<code>{order_text}</code>\n\n<b>Статус:</b> {status}\n<b>Дата створення:</b> {created_at}",
+  "not_available": "Не доступно"
 }

@@ -82,6 +82,9 @@
   "field_name_payment_method": "Payment",
   "field_name_contact_phone": "Phone",
   "field_name_delivery_notes": "Notes",
+  "field_name_username": "Username",
+  "field_name_sent_at": "Dispatch date",
+  "field_name_received_at": "Receipt date",
 
   "_COMMENT_Admin_panel_main_menu": "COMMENT",
   "admin_welcome_message": "<b>Welcome to the Admin Panel! Choose an action:</b>",
@@ -101,10 +104,14 @@
   "error_search_query_not_found": "Error: Search query not found. Please start a new search.",
   "admin_prompt_search_query": "Please enter order ID, part of username, or part of order text to search:",
   "admin_cancel_search_button": "Cancel search",
+  "button_export_csv": "Export to CSV 📊",
+  "export_csv_success_alert": "The CSV file with orders has been successfully generated and sent!",
+  "export_csv_no_data_alert": "No data to export to CSV.",
+  "export_csv_error_alert": "An error occurred while exporting to CSV.",
 
   "_COMMENT_Admin_order_details_and_actions": "COMMENT",
   "order_details_title": "<b>Order Details № {order_id}</b>",
-  "order_details_user": "<b>User:</b> <b>{username}</b> ({user_id})",
+  "order_details_user": "<b>User:</b> @{username} (ID: {user_id})",
   "order_details_status": "<b>Status:</b> <b>{status}</b>",
   "order_details_order_text": "<b>Order Text:</b>\n<code>{order_text}</code>",
   "order_details_full_name": "<b>Full Name:</b> {full_name}",
@@ -130,7 +137,6 @@
   "admin_order_deleted_success_alert": "Order №{order_id} successfully deleted.",
   "admin_order_delete_failed_alert": "Failed to delete order. Order not found.",
   "error_invalid_callback_data": "Error: Invalid data format.",
-  "button_back_to_orders": "⬅️ Back to Orders",
   "admin_edit_text_cancelled_alert": "Editing cancelled.",
 
   "_COMMENT_Admin_help_messages_management": "COMMENT",
@@ -195,5 +201,23 @@
   "choose_language_prompt": "Please choose a language:",
   "your_current_language": "Your current language: {current_lang}",
   "language_changed_success_alert": "Language changed to {new_lang}!",
-  "language_change_failed_alert": "Failed to change language."
+  "language_change_failed_alert": "Failed to change language.",
+
+  "_COMMENT_Notification_settings": "COMMENT",
+  "button_notification_settings": "Notification Settings 🔔",
+  "notification_settings_title": "<b>Notification Settings</b>\n\nCurrent Status: {status_emoji} {current_status}\n\nDo you want to change it?",
+  "notifications_enabled_status": "Enabled",
+  "notifications_disabled_status": "Disabled",
+  "button_enable_notifications": "Enable Notifications ✅",
+  "button_disable_notifications": "Disable Notifications ❌",
+  "notifications_enabled_alert": "Notifications enabled!",
+  "notifications_disabled_alert": "Notifications disabled!",
+  "notifications_toggle_failed_alert": "Failed to change notification status.",
+  "order_placed_success_user_notification": "Your order №<b>{order_id}</b> has been successfully placed! You will receive updates here.",
+  "user_order_status_changed_notification": "🔔 The status of your order #<b>{order_id}</b> has been changed to: <b>{new_status_name}</b>.",
+
+  "_COMMENT_Admin_notifications": "COMMENT",
+  "admin_new_order_notification_title": "🔔 NEW ORDER №{order_id} 🔔",
+  "admin_new_order_notification_details": "<b>User:</b> {username} (ID: {user_id})\n<b>Full Name:</b> {full_name}\n<b>Phone:</b> {phone_number}\n<b>Order Text:</b>\n<code>{order_text}</code>\n\n<b>Status:</b> {status}\n<b>Creation Date:</b> {created_at}",
+  "not_available": "Not available"
 }

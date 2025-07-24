@@ -3,11 +3,10 @@ import math
 import urllib.parse
 from typing import Union
 
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
 from aiogram.enums import ParseMode
-# from aiogram.fsm.storage.base import BaseStorage, StorageKey # <-- УДАЛЕНО: Больше не нужны здесь
 
 from config import ORDERS_PER_PAGE, MAX_PREVIEW_TEXT_LENGTH
 from db import get_all_orders, search_orders
@@ -33,7 +32,7 @@ def _get_admin_main_menu_keyboard(lang: str) -> InlineKeyboardBuilder:
 async def _display_admin_main_menu(
         update_object: Union[Message, CallbackQuery],
         state: FSMContext,
-        lang: str  # <-- ИЗМЕНЕНО: Теперь lang передается напрямую
+        lang: str
 ):
     """
     Отображает главное меню админ-панели.
@@ -43,7 +42,7 @@ async def _display_admin_main_menu(
     """
     user_id = update_object.from_user.id
     logger.info(
-        f"Админ {user_id} переходит в главное меню админ-панели (язык: {lang}).")  # <-- ДОБАВЛЕНО: Логирование языка
+        f"Админ {user_id} переходит в главное меню админ-панели (язык: {lang}).")
 
     await state.clear()
 
@@ -172,6 +171,13 @@ async def _display_orders_paginated(
 
     if total_orders > ORDERS_PER_PAGE:  # Показываем пагинацию только если есть больше одной страницы
         final_keyboard.row(*pagination_builder.buttons)
+
+    # --- Кнопка "Выгрузить в CSV" ---
+    export_callback_data = "export_all_orders_csv" if not is_search else f"export_search_orders_csv:{encoded_query_text}"
+    final_keyboard.row(InlineKeyboardButton(
+        text=get_localized_message("button_export_csv", lang),
+        callback_data=export_callback_data
+    ))
 
     final_keyboard.row(InlineKeyboardButton(
         text=get_localized_message("button_back_to_admin_panel", lang),

@@ -82,6 +82,9 @@
   "field_name_payment_method": "Оплата",
   "field_name_contact_phone": "Телефон",
   "field_name_delivery_notes": "Примечания",
+  "field_name_username": "Юзернейм",
+  "field_name_sent_at": "Дата отправки",
+  "field_name_received_at": "Дата получения",
 
   "_COMMENT_Admin_panel_main_menu": "COMMENT",
   "admin_welcome_message": "<b>Добро пожаловать в Админ-панель! Выберите действие:</b>",
@@ -101,10 +104,14 @@
   "error_search_query_not_found": "Ошибка: Поисковый запрос не найден. Пожалуйста, начните новый поиск.",
   "admin_prompt_search_query": "Пожалуйста, введите ID заказа, часть имени пользователя или часть текста заказа для поиска:",
   "admin_cancel_search_button": "Отменить поиск",
+  "button_export_csv": "Выгрузить в CSV 📊",
+  "export_csv_success_alert": "Файл CSV с заказами успешно сгенерирован и отправлен!",
+  "export_csv_no_data_alert": "Нет данных для экспорта в CSV.",
+  "export_csv_error_alert": "Произошла ошибка при экспорте в CSV.",
 
   "_COMMENT_Admin_order_details_and_actions": "COMMENT",
   "order_details_title": "<b>Детали заказа № {order_id}</b>",
-  "order_details_user": "<b>Пользователь:</b> <b>{username}</b> ({user_id})",
+  "order_details_user": "<b>Пользователь:</b> @{username} (ID: {user_id})",
   "order_details_status": "<b>Статус:</b> <b>{status}</b>",
   "order_details_order_text": "<b>Текст заказа:</b>\n<code>{order_text}</code>",
   "order_details_full_name": "<b>Полное имя:</b> {full_name}",
@@ -130,7 +137,6 @@
   "admin_order_deleted_success_alert": "Заказ №{order_id} успешно удален.",
   "admin_order_delete_failed_alert": "Не удалось удалить заказ. Заказ не найден.",
   "error_invalid_callback_data": "Ошибка: Неверный формат данных.",
-  "button_back_to_orders": "⬅️ Назад к Заказам",
   "admin_edit_text_cancelled_alert": "Редактирование отменено.",
 
   "_COMMENT_Admin_help_messages_management": "COMMENT",
@@ -195,5 +201,23 @@
   "choose_language_prompt": "Пожалуйста, выберите язык:",
   "your_current_language": "Твой текущий язык: {current_lang}",
   "language_changed_success_alert": "Язык изменен на {new_lang}!",
-  "language_change_failed_alert": "Не удалось изменить язык."
+  "language_change_failed_alert": "Не удалось изменить язык.",
+
+  "_COMMENT_Notification_settings": "COMMENT",
+  "button_notification_settings": "Настройки уведомлений 🔔",
+  "notification_settings_title": "<b>Настройки уведомлений</b>\n\nТекущий статус: {status_emoji} {current_status}\n\nХотите изменить?",
+  "notifications_enabled_status": "Включены",
+  "notifications_disabled_status": "Выключены",
+  "button_enable_notifications": "Включить уведомления ✅",
+  "button_disable_notifications": "Выключить уведомления ❌",
+  "notifications_enabled_alert": "Уведомления включены!",
+  "notifications_disabled_alert": "Уведомления выключены!",
+  "notifications_toggle_failed_alert": "Не удалось изменить статус уведомлений.",
+  "order_placed_success_user_notification": "Ваш заказ №<b>{order_id}</b> успешно создан! Вы будете получать обновления здесь.",
+  "user_order_status_changed_notification": "🔔 Статус вашего заказа №<b>{order_id}</b> изменен на: <b>{new_status_name}</b>.",
+
+  "_COMMENT_Admin_notifications": "COMMENT",
+  "admin_new_order_notification_title": "🔔 НОВЫЙ ЗАКАЗ №{order_id} 🔔",
+  "admin_new_order_notification_details": "<b>Пользователь:</b> {username} (ID: {user_id})\n<b>Полное имя:</b> {full_name}\n<b>Телефон:</b> {phone_number}\n<b>Текст заказа:</b>\n<code>{order_text}</code>\n\n<b>Статус:</b> {status}\n<b>Дата создания:</b> {created_at}",
+  "not_available": "Не доступно"
 }

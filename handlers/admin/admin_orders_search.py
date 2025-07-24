@@ -1,16 +1,18 @@
 import logging
 import urllib.parse
 
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram import Router, F, Bot
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, \
+    BufferedInputFile  # ИЗМЕНЕНО: Импортируем BufferedInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.enums import ParseMode
 
-from db import get_or_create_user
+from db import get_or_create_user, search_orders
 from .admin_filters import IsAdmin
 from .admin_states import AdminStates
 from .admin_utils import _display_orders_paginated, _display_admin_main_menu
 from localization import get_localized_message
+from .admin_export import generate_orders_csv
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -106,3 +108,56 @@ async def admin_search_pagination_callback(
 
     await _display_orders_paginated(callback, state, current_page=page, lang=lang, is_search=True)
 
+
+@router.callback_query(F.data.startswith("export_search_orders_csv:"), IsAdmin())
+async def export_search_orders_csv_callback(
+        callback: CallbackQuery,
+        bot: Bot,
+        state: FSMContext,
+        lang: str
+):
+    """
+    Обрабатывает запрос на выгрузку результатов поиска заказов в CSV.
+    """
+    user_id = callback.from_user.id
+
+    try:
+        parts = callback.data.split(":")
+        search_query_encoded = parts[1] if len(parts) > 1 else ""
+        search_query = urllib.parse.unquote_plus(search_query_encoded)
+    except (ValueError, IndexError):
+        logger.error(f"Админ {user_id}: Неверный формат callback_data для экспорта поиска: {callback.data}")
+        alert_text = get_localized_message("error_invalid_callback_data", lang)
+        await callback.answer(alert_text, show_alert=True)
+        return
+
+    logger.info(f"Админ {user_id} запросил выгрузку результатов поиска ('{search_query}') в CSV.")
+
+    await callback.answer(get_localized_message("thank_you_processing", lang), show_alert=False)
+
+    try:
+        all_search_results, total_count = await search_orders(search_query=search_query, offset=0, limit=None)
+
+        if not all_search_results:
+            await callback.message.answer(get_localized_message("export_csv_no_data_alert", lang))
+            await callback.answer(get_localized_message("export_csv_no_data_alert", lang), show_alert=True)
+            logger.warning(f"Админ {user_id}: Нет данных для экспорта результатов поиска ('{search_query}') в CSV.")
+            return
+
+        csv_file_in_memory = await generate_orders_csv(all_search_results, lang)
+
+        # ИЗМЕНЕНО: Используем BufferedInputFile вместо FSInputFile
+        filename = f"search_results_{search_query.replace(' ', '_')}.csv"
+        await bot.send_document(
+            chat_id=user_id,
+            document=BufferedInputFile(csv_file_in_memory.getvalue(), filename=filename),
+            # .getvalue() для получения байтов
+            caption=get_localized_message("export_csv_success_alert", lang)
+        )
+        logger.info(f"Админу {user_id} успешно отправлен CSV-файл с результатами поиска ('{search_query}').")
+        await callback.answer(get_localized_message("export_csv_success_alert", lang), show_alert=True)
+
+    except Exception as e:
+        logger.error(f"Ошибка при выгрузке результатов поиска в CSV для админа {user_id}: {e}", exc_info=True)
+        await callback.message.answer(get_localized_message("export_csv_error_alert", lang))
+        await callback.answer(get_localized_message("export_csv_error_alert", lang), show_alert=True)

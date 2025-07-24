@@ -80,7 +80,7 @@ async def create_tables_async():
     Если у вас есть другие инициализационные задачи, оставьте их здесь.
     """
     logger.info("Alembic управляет миграциями базы данных. create_tables_async() не выполняет создание таблиц.")
-    pass # Или удалите эту функцию, если она больше не нужна вовсе
+    pass  # Или удалите эту функцию, если она больше не нужна вовсе
 
 
 # --- Функции для работы с пользователями ---
@@ -105,7 +105,7 @@ async def get_or_create_user(
             user.username = username
             user.first_name = first_name
             user.last_name = last_name
-            user.last_activity_at = func.now() # Использование last_activity_at
+            user.last_activity_at = func.now()  # Использование last_activity_at
             logger.debug(f"Пользователь {user_id} обновлен в БД.")
         else:
             # Создаем нового пользователя
@@ -119,7 +119,7 @@ async def get_or_create_user(
             logger.info(f"Новый пользователь {user_id} добавлен в БД.")
 
         await db.flush()  # Убедимся, что user.id доступен, если это новый пользователь
-
+        await db.refresh(user)  # Обновляем объект, чтобы получить актуальные данные
         return user
 
 
@@ -148,10 +148,45 @@ async def update_user_language(user_id: int, new_language_code: str) -> Optional
         user = result.scalar_one_or_none()
         if user:
             user.language_code = new_language_code
-            user.last_activity_at = func.now() # Использование last_activity_at
+            user.last_activity_at = func.now()  # Использование last_activity_at
             logger.info(f"Язык пользователя {user_id} обновлен на '{new_language_code}'.")
             return user
         logger.warning(f"Пользователь с ID {user_id} не найден для обновления языка.")
+        return None
+
+
+async def get_user_notifications_status(user_id: int) -> Optional[bool]:
+    """
+    Получает статус уведомлений пользователя из базы данных.
+    Возвращает True/False или None, если пользователь не найден.
+    """
+    async with get_db_session() as db:
+        # Исправлено: используем select().where() для поиска по user_id (Telegram ID)
+        stmt = select(User).where(User.user_id == user_id)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
+        if user:
+            return user.notifications_enabled
+        logger.warning(f"Пользователь с ID {user_id} не найден для получения статуса уведомлений.")
+        return None
+
+
+async def update_user_notifications_status(user_id: int, status: bool) -> Optional[User]:
+    """
+    Обновляет статус уведомлений пользователя в базе данных.
+    Возвращает обновленный объект User или None, если пользователь не найден.
+    """
+    async with get_db_session() as db:
+        # Исправлено: используем select().where() для поиска по user_id (Telegram ID)
+        stmt = select(User).where(User.user_id == user_id)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
+        if user:
+            user.notifications_enabled = status
+            user.last_activity_at = func.now()
+            logger.info(f"Статус уведомлений пользователя {user_id} обновлен на '{status}'.")
+            return user
+        logger.warning(f"Пользователь с ID {user_id} не найден для обновления статуса уведомлений.")
         return None
 
 
@@ -164,7 +199,7 @@ async def add_new_order(
         full_name: Optional[str] = None,
         delivery_address: Optional[str] = None,
         payment_method: Optional[str] = None,
-        contact_phone: Optional[str] = None, # Изменено на contact_phone
+        contact_phone: Optional[str] = None,
         delivery_notes: Optional[str] = None,
         status: str = 'new'
 ) -> Order:
@@ -179,12 +214,13 @@ async def add_new_order(
             full_name=full_name,
             delivery_address=delivery_address,
             payment_method=payment_method,
-            contact_phone=contact_phone, # Использование contact_phone
+            contact_phone=contact_phone,
             delivery_notes=delivery_notes,
             status=status
         )
         db.add(new_order)
         await db.flush()  # Для получения ID нового заказа
+        await db.refresh(new_order)  # Обновляем объект, чтобы получить актуальные данные (например, created_at)
         logger.info(f"Новый заказ ID {new_order.id} добавлен от пользователя {user_id}.")
         return new_order
 
@@ -480,19 +516,21 @@ async def update_help_message_language(message_id: int, new_language_code: str) 
             # Если сообщение было активно, деактивируем все активные для нового языка
             if is_currently_active:
                 active_messages_for_new_lang = (await db.execute(
-                    select(HelpMessage).where(HelpMessage.language_code == new_language_code, HelpMessage.is_active == True)
+                    select(HelpMessage).where(HelpMessage.language_code == new_language_code,
+                                              HelpMessage.is_active == True)
                 )).scalars().all()
                 for msg in active_messages_for_new_lang:
                     msg.is_active = False
-                await db.flush() # Применяем изменения перед обновлением текущего сообщения
+                await db.flush()  # Применяем изменения перед обновлением текущего сообщения
 
             message.language_code = new_language_code
             message.updated_at = func.now()
             # Если сообщение было активно, оно остается активным для нового языка
             # Если не было активно, остается неактивным.
-            message.is_active = is_currently_active # Сохраняем статус активности
+            message.is_active = is_currently_active  # Сохраняем статус активности
 
-            logger.info(f"Язык сообщения помощи ID {message_id} изменен с '{old_language_code}' на '{new_language_code}'.")
+            logger.info(
+                f"Язык сообщения помощи ID {message_id} изменен с '{old_language_code}' на '{new_language_code}'.")
             return message
         logger.warning(f"Попытка обновить язык несуществующего сообщения помощи ID {message_id}.")
         return None
