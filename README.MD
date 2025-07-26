@@ -153,4 +153,11 @@ python main.py
 
 ## 📄 License
 
-MIT — see [LICENSE](LICENSE).
+This project is licensed under the [MIT License](LICENSE).  
+You are free to:
+
+- **use** it for any purpose (commercial or private),  
+- **copy**, **modify**, **merge**, **publish**, **distribute**, **sublicense** and/or **sell** copies,  
+- include it in larger projects or as part of your own product.
+
+The only requirement is to keep the original copyright notice and license file.
