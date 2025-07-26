@@ -78,7 +78,13 @@ pip install -r requirements.txt
 Create `.env` in the project root:
 ```ini
 BOT_TOKEN=YOUR_BOT_TOKEN
-ADMIN_IDS=123456789,987654321   # optional
+ADMIN_IDS=123456789,987654321
+DATABASE_NAME="YOUR_DB_NAME.db"
+LOGGING_LEVEL=INFO
+ORDERS_PER_PAGE="5"
+MAX_PREVIEW_TEXT_LENGTH="20"
+USER_ORDERS_PER_PAGE=5
+
 ```
 
 ### 5. Database

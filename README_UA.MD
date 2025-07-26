@@ -77,8 +77,13 @@ pip install -r requirements.txt
 ### 4. Змінні середовища
 Створіть `.env` у корені проєкту:
 ```ini
-BOT_TOKEN=ВАШ_ТОКЕН
-ADMIN_IDS=123456789,987654321   # за бажанням
+BOT_TOKEN=ТОКЕН_ВАШОГО_БОТА
+ADMIN_IDS=123456789,987654321
+DATABASE_NAME="ІМ`Я_ВАШОЇ_БД.db"
+LOGGING_LEVEL=INFO
+ORDERS_PER_PAGE="5"
+MAX_PREVIEW_TEXT_LENGTH="20"
+USER_ORDERS_PER_PAGE=5
 ```
 
 ### 5. Ініціалізація БД
