@@ -1,66 +1,66 @@
-# Telegram Order Bot (українська версія)
+# Telegram Order Bot (English)
 
-Легкий Telegram-бот, який дозволяє клієнтам оформлювати замовлення за кілька кліків, а адміністраторам — повністю контролювати їх виконання.  
-Підтримує три мови (🇺🇦 🇬🇧 🇷🇺), відстеження статусів у реальному часі та адмін-панель.
-
----
-
-## 🔥 Можливості
-
-- **Покроковий майстер замовлення** — максимально просто для клієнтів  
-- **Історія замовлень** — пагінація активних і завершених  
-- **Багатомовність** — українська, англійська, російська (перемикаються миттєво)  
-- **Керування сповіщеннями** — увімкнути / вимкнути  
-- **Інструменти адміна**
-  - перегляд усіх замовлень  
-  - пошук і фільтри  
-  - керування довідковими повідомленнями  
-- **База даних** — SQLite + SQLAlchemy ORM (заміна на PostgreSQL/MySQL — одна строка)  
-- **Міграції** — Alembic
+A lightweight Telegram bot that lets customers place orders in a few taps and gives admins full visibility and control over their fulfilment.  
+Supports three languages (🇺🇦 🇬🇧 🇷🇺), real-time status tracking and an admin panel.
 
 ---
 
-## 📂 Структура проєкту
+## 🔥 Features
+
+- **Step-by-step order wizard** — effortless for customers  
+- **Order history** — paginated active and past orders  
+- **Multilingual** — Ukrainian, English, Russian (switch on-the-fly)  
+- **Notification toggle** — enable / disable alerts  
+- **Admin tools**
+  - browse all orders  
+  - search & filters  
+  - manage help messages  
+- **Database** — SQLite + SQLAlchemy ORM (swap to PostgreSQL/MySQL in one line)  
+- **Migrations** — Alembic
+
+---
+
+## 📂 Project Tree
 
 ```
 Milohvost_tg_bot/
-├── .env                      # Змінні середовища (токен, ID адмінів тощо)
-├── README.MD                 # Англійська версія
-├── README_RU.MD              # Російська версія
-├── README_UA.MD              # Цей файл (українська)
-├── alembic/                  # Скрипти міграцій Alembic
+├── .env                      # Environment variables (token, admin IDs, etc.)
+├── README.MD                 # English description (this file)
+├── README_RU.MD              # Russian description
+├── README_UA.MD              # Ukrainian description
+├── alembic/                  # Alembic migration scripts
 │   └── versions/
-├── config.py                 # Константи та налаштування
-├── db.py                     # CRUD-операції
+├── config.py                 # Constants and settings
+├── db.py                     # CRUD helpers
 ├── handlers/
-│   ├── admin/                # Обробники для адмінів
-│   └── user/                 # Обробники для користувачів
+│   ├── admin/                # Admin-only handlers
+│   └── user/                 # Customer handlers
 ├── locales/
-│   ├── uk.json               # Українська
-│   ├── en.json               # Англійська
-│   └── ru.json               # Російська
-├── localization.py           # Утиліти локалізації
-├── main.py                   # Точка входу
-├── models.py                 # Моделі SQLAlchemy
-├── requirements.txt          # Залежності Python
-└── show_structure.py         # Виведення дерева проєкту
+│   ├── uk.json               # Ukrainian
+│   ├── en.json               # English
+│   └── ru.json               # Russian
+├── localization.py           # i18n utilities
+├── main.py                   # Bot entry point
+├── models.py                 # SQLAlchemy models
+├── requirements.txt          # Python dependencies
+└── show_structure.py         # CLI tree printer
 ```
 
 ---
 
-## ⚙️ Встановлення
+## ⚙️ Setup
 
-### Вимоги
+### Prerequisites
 - Python 3.9+  
-- Токен Telegram-бота від [@BotFather](https://t.me/BotFather)
+- Telegram bot token from [@BotFather](https://t.me/BotFather)
 
-### 1. Клонування
+### 1. Clone
 ```bash
 git clone https://github.com/your-repo/telegram-order-bot.git
 cd telegram-order-bot
 ```
 
-### 2. Віртуальне середовище
+### 2. Virtual environment
 ```bash
 python -m venv venv
 # Windows
@@ -69,72 +69,72 @@ venv\Scripts\activate
 source venv/bin/activate
 ```
 
-### 3. Встановлення залежностей
+### 3. Install deps
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Змінні середовища
-Створіть `.env` у корені проєкту:
+### 4. Environment variables
+Create `.env` in the project root:
 ```ini
-BOT_TOKEN=ВАШ_ТОКЕН
-ADMIN_IDS=123456789,987654321   # за бажанням
+BOT_TOKEN=YOUR_BOT_TOKEN
+ADMIN_IDS=123456789,987654321   # optional
 ```
 
-### 5. Ініціалізація БД
+### 5. Database
 ```bash
 alembic upgrade head
 ```
 
-### 6. Запуск
+### 6. Run
 ```bash
 python main.py
 ```
 
 ---
 
-## 👤 Для користувачів
+## 👤 For Customers
 
-- `/start` — початок роботи  
-- Головне меню:
-  - 📝 **Зробити замовлення**  
-  - 📋 **Мої замовлення**  
-  - ❓ **Допомога**  
-  - 🌐 **Змінити мову**  
-  - 🔔 **Сповіщення** (увімкнути / вимкнути)
-
----
-
-## 🛠️ Для адмінів
-
-- `/admin` — відкрити адмін-меню  
-- Доступні дії:
-  - 📋 **Усі замовлення**  
-  - 🔍 **Пошук замовлень**  
-  - 💬 **Керування довідкою**  
-- Адміни отримують сповіщення про нові замовлення
+- `/start` — begin interaction  
+- Main menu:
+  - 📝 **Make an Order**  
+  - 📋 **My Orders**  
+  - ❓ **Get Help**  
+  - 🌐 **Change Language**  
+  - 🔔 **Notification Settings**
 
 ---
 
-## 🌐 Локалізація
+## 🛠️ For Admins
 
-1. Додайте `locales/xx.json` (`xx` = код мови)  
-2. Перекладіть усі ключі з базового `en.json`  
-3. Перезапустіть бота
-
----
-
-## 🗃️ Схема БД
-
-| Таблиця         | Призначення                                  |
-|-----------------|----------------------------------------------|
-| `users`         | інформація про користувачів, мова, сповіщення |
-| `orders`        | деталі замовлень, статус                     |
-| `help_messages` | локалізовані тексти довідки                  |
+- `/admin` — open admin menu  
+- Available actions:
+  - 📋 **All Orders**  
+  - 🔍 **Search Orders**  
+  - 💬 **Manage Help Messages**  
+- Admins receive new-order notifications
 
 ---
 
-## 🔧 Технології
+## 🌐 Localization
+
+1. Add `locales/xx.json` (`xx` = language code)  
+2. Translate all keys from base `en.json`  
+3. Restart the bot
+
+---
+
+## 🗃️ Database Schema
+
+| Table           | Purpose                                   |
+|-----------------|-------------------------------------------|
+| `users`         | user info, language, notification prefs   |
+| `orders`        | order details, status                     |
+| `help_messages` | localized help texts                      |
+
+---
+
+## 🔧 Tech Stack
 
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://python.org)
 [![Aiogram 3.x](https://img.shields.io/badge/Aiogram-3.x-green.svg)](https://docs.aiogram.dev/)
@@ -145,6 +145,6 @@ python main.py
 
 ---
 
-## 📄 Ліцензія
+## 📄 License
 
-MIT — див. файл [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
