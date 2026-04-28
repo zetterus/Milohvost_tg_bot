@@ -151,6 +151,16 @@ python main.py
 
 ---
 
+## 🤖 AI-Assisted Development
+
+This project was built using modern **AI-augmented development** practices to ensure code quality and architectural integrity:
+
+* **Architectural Optimization:** Utilized **DeepSeek** and **Gemini** to refine the project structure, ensuring a clean separation of concerns between database logic (SQLAlchemy) and bot handlers (Aiogram).
+* **Database Design:** AI-assisted modeling for the SQLite schema and Alembic migrations.
+* **Efficiency:** Developed with **GitHub Copilot** to accelerate boilerplate coding and unit testing.
+
+---
+
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).  
