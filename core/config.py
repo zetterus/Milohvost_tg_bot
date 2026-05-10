@@ -1,11 +1,26 @@
 ﻿"""Settings module using pydantic-settings for configuration management."""
+import os
 import re
+from dotenv import dotenv_values
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator
+from pydantic import field_validator, Field
+
+
+def _parse_admin_ids_string(value: str) -> list[int]:
+    """Parse comma-separated admin IDs with optional quotes/spaces."""
+    parsed: list[int] = []
+    for raw_part in value.split(","):
+        token = raw_part.strip().strip('"').strip("'")
+        if not token:
+            continue
+        parsed.append(int(token))
+    return parsed
+
+
 class Settings(BaseSettings):
     """Application settings loaded from .env file and environment variables."""
     bot_token: str
-    admin_ids: list[int] = []
+    admin_ids: list[int] = Field(default_factory=list, validation_alias="ADMIN_IDS")
     database_name: str = "orders_bot.db"
     logging_level: str = "INFO"
     orders_per_page: int = 10
@@ -19,15 +34,23 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        populate_by_name=True,
     )
     @field_validator("admin_ids", mode="before")
     @classmethod
     def parse_admin_ids(cls, v):
         if isinstance(v, str):
-            return [int(id_.strip()) for id_ in v.split(",") if id_.strip()]
+            return _parse_admin_ids_string(v)
         if isinstance(v, list):
             return [int(id_) for id_ in v]
         return []
+
+    def model_post_init(self, __context) -> None:
+        # Fallback for environments where list parsing from .env gets dropped by settings parsing.
+        if not self.admin_ids:
+            raw_admin_ids = os.getenv("ADMIN_IDS", "") or str(dotenv_values(".env").get("ADMIN_IDS", ""))
+            if raw_admin_ids:
+                self.admin_ids = _parse_admin_ids_string(raw_admin_ids)
 settings = Settings()
 ORDER_STATUS_KEYS = ['new', 'stockcheck', 'confirmed', 'paid', 'tosupplier', 'awaitingship', 'shipped', 'intransit', 'onhold', 'delivered', 'cancelled', 'returned']
 ACTIVE_ORDER_STATUS_KEYS = ['new', 'stockcheck', 'confirmed', 'paid', 'tosupplier', 'awaitingship', 'shipped', 'intransit', 'onhold']
