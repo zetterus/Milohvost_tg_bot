@@ -1,4 +1,4 @@
-"""Admin orders management handlers - uses OrderService and NotificationService."""
+"""Admin orders management handlers."""
 import logging
 import html
 import math
@@ -15,9 +15,7 @@ from aiogram.filters import StateFilter
 from core.database import get_db_session
 from core.config import settings, ORDER_STATUS_KEYS, ORDER_FIELD_NAMES_KEYS, ORDER_FIELD_MAP
 from repositories.orders import OrderRepository
-from repositories.users import UserRepository
 from services.order_service import OrderService
-from services.notification_service import NotificationService
 from bot.handlers.admin.filters import IsAdmin
 from bot.states.admin_states import AdminStates
 from bot.handlers.admin.main_menu import show_admin_menu
@@ -271,7 +269,7 @@ async def view_order_details(callback: CallbackQuery, state: FSMContext, lang: s
 # ─── status change ────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("admin_change_order_status:"), IsAdmin())
-async def change_order_status(callback: CallbackQuery, state: FSMContext, bot: Bot, lang: str):
+async def change_order_status(callback: CallbackQuery, state: FSMContext, lang: str):
     try:
         parts = callback.data.split(":")
         order_id = int(parts[1])
@@ -282,7 +280,6 @@ async def change_order_status(callback: CallbackQuery, state: FSMContext, bot: B
 
     async with get_db_session() as session:
         order_repo = OrderRepository(session)
-        user_repo = UserRepository(session)
         order = await order_repo.get_by_id(order_id)
 
         if not order:
@@ -297,10 +294,6 @@ async def change_order_status(callback: CallbackQuery, state: FSMContext, bot: B
                 get_localized_message("admin_status_changed_alert", lang).format(order_id=order_id, status_name=status_name),
                 show_alert=True,
             )
-            # Notify the order owner
-            user_lang = await user_repo.get_language(order.user_id)
-            notif = NotificationService(bot, order_repo, user_repo)
-            await notif.notify_user_order_status_changed(order.user_id, order_id, new_status, user_lang)
         else:
             await callback.answer(get_localized_message("admin_status_change_failed_alert", lang).format(order_id=order_id), show_alert=True)
 
@@ -411,7 +404,7 @@ async def export_all_csv(callback: CallbackQuery, bot: Bot, lang: str):
         if not orders:
             await callback.message.answer(get_localized_message("export_csv_no_data_alert", lang))
             return
-        from handlers.admin.admin_export import generate_orders_csv
+        from bot.handlers.admin.admin_export import generate_orders_csv
         csv_bytes = await generate_orders_csv(orders, lang)
         await bot.send_document(
             chat_id=callback.from_user.id,
@@ -434,7 +427,7 @@ async def export_search_csv(callback: CallbackQuery, bot: Bot, lang: str):
         if not orders:
             await callback.message.answer(get_localized_message("export_csv_no_data_alert", lang))
             return
-        from handlers.admin.admin_export import generate_orders_csv
+        from bot.handlers.admin.admin_export import generate_orders_csv
         csv_bytes = await generate_orders_csv(orders, lang)
         fname = f"search_{query.replace(' ', '_')}.csv"
         await bot.send_document(
