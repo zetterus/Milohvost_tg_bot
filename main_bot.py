@@ -1,0 +1,14 @@
+"""
+New bot entry point using the refactored architecture.
+
+Run with: python main_bot.py
+"""
+import asyncio
+from bot.main import run_bot
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(run_bot())
+    except KeyboardInterrupt:
+        pass
+
